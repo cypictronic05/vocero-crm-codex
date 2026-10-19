@@ -368,8 +368,10 @@ solas al arrancar.
 
 ### Primer arranque
 
-1. Entra y **regístrate**: el primer registro crea tu organización y cierra el
-   registro público.
+1. Mantén `REGISTRATION_MODE=closed` y crea el propietario desde la consola del
+   contenedor con `/app/provision-owner.mjs`, siguiendo
+   [`docs/seguridad-registro-nexora.md`](docs/seguridad-registro-nexora.md).
+   El registro público nunca necesita abrirse.
 2. Lo primero que ves es la **Guía de inicio**: tres pasos —configura tu
    agente, vincula tu proveedor de IA, conecta tu número de WhatsApp— y, con la
    agenda encendida (`AGENDA=on`), un cuarto para tus horarios. Cada botón te

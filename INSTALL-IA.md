@@ -148,8 +148,9 @@ docker compose up -d
 
 > ✅ Vocero quedó instalado en `https://<dominio>`.
 >
-> 1. Entra y **regístrate**: el primer registro crea tu organización (después
->    el registro público se cierra solo).
+> 1. Deja `REGISTRATION_MODE=closed` y aprovisiona el propietario desde la
+>    consola del contenedor con `/app/provision-owner.mjs`, siguiendo
+>    `docs/seguridad-registro-nexora.md`. No abras el registro público.
 > 2. Pulsa **"Cargar datos de demostración"** si quieres explorar con la
 >    Ferretería El Martillo.
 > 3. Para conectar tu WhatsApp entra a **Configuración → WhatsApp**: ahí está

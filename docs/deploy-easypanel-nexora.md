@@ -49,12 +49,16 @@ ENCRYPTION_KEY=VALOR_BASE64_DE_32_BYTES
 META_WEBHOOK_VERIFY_TOKEN=VALOR_SECRETO
 META_APP_SECRET=VALOR_SECRETO
 META_GRAPH_API_VERSION=v25.0
+REGISTRATION_MODE=closed
 ```
 
 `DATABASE_URL` debe ser la URL interna que muestra el servicio PostgreSQL de
 EasyPanel. No uses el host público, no publiques 5432 y no escribas la URL en
 el código o en un archivo versionado. Conserva la `ENCRYPTION_KEY` actual al
 migrar datos: cambiarla vuelve ilegibles las credenciales cifradas existentes.
+`REGISTRATION_MODE=closed` impide el signup público incluso con una base vacía;
+no lo cambies durante la migración. El aprovisionamiento y la recuperación se
+describen en `docs/seguridad-registro-nexora.md`.
 
 Opcionales según la instancia:
 
@@ -102,6 +106,11 @@ Para revertir código, selecciona en EasyPanel un deployment anterior o vuelve
 la fuente a un commit conocido de esta misma rama. No reviertas migraciones ni
 restaures la base automáticamente: conserva el estado actual y evalúa
 compatibilidad antes de promover un respaldo.
+
+Para trasladar la instalación local completa sin SSH, incluidos usuarios,
+conversaciones y adjuntos, sigue `docs/migracion-easypanel-nexora.md`. El flujo
+restaura primero en una base paralela y deja la base actual disponible para una
+reversión inmediata.
 
 El archivo `docker-compose.easypanel.yml` documenta la misma topología de una
 sola app para validación local. No es necesario elegir Compose como fuente en

@@ -202,15 +202,15 @@ US1, US2 (MVP gate) → US3, US4, US5, US8 (núcleo P1) → US6 (P2) → US7 (P3
 
 ## Phase 10: User Story 7 — Multi-usuario mínimo (Priority: P3)
 
-**Goal**: registro cerrado tras la 1ª org; owner crea cuentas de equipo; rate limit de auth
+**Goal**: registro cerrado incluso sin org; owner crea cuentas de equipo; rate limit de auth
 
-**Independent Test**: 2º registro → bloqueado con mensaje claro; con ALLOW_SIGNUP=true → permitido; owner crea miembro (email+password temporal) y este entra; 11 logins fallidos seguidos → 429
+**Independent Test**: `closed` bloquea el primer registro por UI y API; `bootstrap` solo admite el primer owner; owner crea miembro dentro de su org; 11 logins fallidos seguidos → 429
 
-- [X] T087 [US7] Gate de registro: existe una org → signup deshabilitado salvo `ALLOW_SIGNUP=true` (server-side en on-signup/route + UI del registro) + tests/unit/registration.test.ts
+- [X] T087 [US7] Gate de registro fail-safe: `closed` por defecto; `bootstrap` solo para el primer owner; control server-side y UI cerrada + tests de seguridad
 - [X] T088 [US7] GET/POST /api/settings/team — listar miembros; crear cuenta (owner only, email + password temporal, rol member) vía Better Auth admin API en src/app/api/settings/team/route.ts
 - [X] T089 [P] [US7] UI equipo src/app/(app)/settings/team/ — lista, form de alta con password temporal mostrada una vez
 - [X] T090 [US7] Rate limiter in-process por IP (ventana deslizante 10 intentos/10min → 429) aplicado a endpoints de auth en src/lib/rate-limit.ts + tests/unit/rate-limit.test.ts
-- [X] T091 [US7] Guion E2E tests/e2e/us7-team.md + ejecutarlo: registro cerrado, escape ALLOW_SIGNUP, alta y login de miembro
+- [X] T091 [US7] Guion E2E tests/e2e/us7-team.md: registro cerrado por API, bootstrap controlado, alta owner-only y login de miembro
 
 **Checkpoint**: todas las user stories funcionales
 

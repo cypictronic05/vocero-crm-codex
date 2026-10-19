@@ -47,7 +47,9 @@ export const envSchema = z.object({
     .url()
     .default("https://www.googleapis.com/calendar/v3"),
   GOOGLE_OAUTH_BASE_URL: z.string().url().default("https://oauth2.googleapis.com"),
-  ALLOW_SIGNUP: z.string().optional(),
+  // `closed` es fail-safe incluso con una base vacia. `bootstrap` abre solo
+  // el primer registro y vuelve a cerrarse en cuanto existe una organizacion.
+  REGISTRATION_MODE: z.enum(["closed", "bootstrap"]).default("closed"),
   AGENT_COALESCE_MS: z.coerce.number().int().min(0).default(6000),
   WA_MOCK_ENABLED: z.string().optional(),
   // API key de un cerebro externo que conduzca la conversación por /api/bot/*.

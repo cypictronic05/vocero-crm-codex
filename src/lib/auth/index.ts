@@ -2,7 +2,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { organization } from "better-auth/plugins";
 import { getDb, schema } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { AUTH_RATE_LIMIT, checkRateLimit, clientIp } from "@/lib/rate-limit";
@@ -38,6 +37,19 @@ function isInternalSignup(): boolean {
   return internalSignupContext().getStore() === true;
 }
 
+/**
+ * Guarda de servidor para el endpoint real de Better Auth. Exportada solo
+ * para probar el mismo camino que usa POST /api/auth/sign-up/email.
+ */
+export async function enforceSignupPolicy(path: string): Promise<void> {
+  if (path !== "/sign-up/email" || isInternalSignup()) return;
+  if (!(await isPublicSignupAllowed())) {
+    throw new APIError("FORBIDDEN", {
+      message: "El registro público está cerrado en esta instancia",
+    });
+  }
+}
+
 const RATE_LIMITED_PATHS = new Set(["/sign-in/email", "/sign-up/email"]);
 
 function createAuth() {
@@ -62,7 +74,9 @@ function createAuth() {
       requireEmailVerification: false,
       minPasswordLength: 8,
     },
-    plugins: [organization({ creatorRole: "owner" })],
+    // Nexora es una sola organizacion por instancia. No se instala el plugin
+    // organization: de hacerlo, Better Auth expondria /organization/create y
+    // una cuenta autenticada podria intentar abrir otro tenant por API.
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         // Rate limit por IP en login/registro (FR-062): 10 / 10 min → 429.
@@ -75,15 +89,7 @@ function createAuth() {
             });
           }
         }
-        // Registro público cerrado tras la primera organización (FR-060).
-        if (ctx.path === "/sign-up/email") {
-          if (!isInternalSignup() && !(await isPublicSignupAllowed())) {
-            throw new APIError("FORBIDDEN", {
-              message:
-                "El registro está cerrado: esta instancia ya tiene su organización",
-            });
-          }
-        }
+        await enforceSignupPolicy(ctx.path);
       }),
     },
     databaseHooks: {

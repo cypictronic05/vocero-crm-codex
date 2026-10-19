@@ -33,3 +33,20 @@ describe("BRAIN_HEALTH_URL no tumba el arranque", () => {
     }
   );
 });
+
+describe("REGISTRATION_MODE falla cerrado", () => {
+  it("sin variable usa closed", async () => {
+    process.env = { ...original, ...BASE };
+    delete process.env.REGISTRATION_MODE;
+    vi.resetModules();
+    const { getEnv } = await import("@/lib/env");
+    expect(getEnv().REGISTRATION_MODE).toBe("closed");
+  });
+
+  it("rechaza valores ambiguos o un supuesto modo open", async () => {
+    process.env = { ...original, ...BASE, REGISTRATION_MODE: "open" };
+    vi.resetModules();
+    const { getEnv } = await import("@/lib/env");
+    expect(() => getEnv()).toThrow("REGISTRATION_MODE");
+  });
+});

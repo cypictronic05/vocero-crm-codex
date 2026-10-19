@@ -34,6 +34,12 @@ RUN pnpm exec esbuild scripts/migrate.mjs --bundle --platform=node \
 RUN pnpm exec esbuild scripts/seed/demo.ts --bundle --platform=node \
     --format=esm --outfile=seed-demo.bundle.mjs --alias:@=./src \
     --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+RUN pnpm exec esbuild scripts/provision-owner.ts --bundle --platform=node \
+    --format=esm --outfile=provision-owner.bundle.mjs --alias:@=./src \
+    --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+RUN pnpm exec esbuild scripts/reset-password.mjs --bundle --platform=node \
+    --format=esm --outfile=reset-password.bundle.mjs \
+    --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
 
 FROM node:22-alpine AS runner
 WORKDIR /app
@@ -57,14 +63,21 @@ COPY --from=builder --chown=vocero:vocero /app/.next/static ./.next/static
 COPY --from=builder --chown=vocero:vocero /app/public ./public
 COPY --from=builder --chown=vocero:vocero /app/migrate.bundle.mjs ./migrate.mjs
 COPY --from=builder --chown=vocero:vocero /app/seed-demo.bundle.mjs ./seed-demo.mjs
+COPY --from=builder --chown=vocero:vocero /app/provision-owner.bundle.mjs ./provision-owner.mjs
+COPY --from=builder --chown=vocero:vocero /app/reset-password.bundle.mjs ./reset-password.mjs
 COPY --from=builder --chown=vocero:vocero /app/drizzle ./drizzle
+# Utilidades inertes para una migracion asistida desde la consola de EasyPanel.
+# No abren endpoints, no se ejecutan al arrancar y no contienen credenciales.
+COPY --from=builder --chown=vocero:vocero /app/scripts/migration ./scripts/migration
 # Nombre propio a propósito: la imagen de node ya trae su docker-entrypoint.sh
 # (antepone `node` si el primer argumento no es un comando) y el nuestro le
 # pasa la posta en vez de pisarlo.
 COPY vocero-entrypoint.sh /usr/local/bin/vocero-entrypoint.sh
 # sed: un checkout de Windows con autocrlf lo deja en CRLF y `sh` no lo corre.
 RUN sed -i 's/\r$//' /usr/local/bin/vocero-entrypoint.sh \
-    && chmod 755 /usr/local/bin/vocero-entrypoint.sh
+    && sed -i 's/\r$//' /app/scripts/migration/*.sh \
+    && chmod 755 /usr/local/bin/vocero-entrypoint.sh \
+    && chmod 755 /app/scripts/migration/*.sh
 
 # Sin `USER vocero`: el entrypoint baja a `vocero` con su-exec. Arrancado con
 # `--user`, también funciona (y avisa si /data no es escribible).

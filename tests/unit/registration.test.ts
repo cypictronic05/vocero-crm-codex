@@ -1,44 +1,46 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-/** FR-060/FR-081: registro cerrado tras la 1ª organización, salvo escape. */
+/** Registro cerrado por defecto; bootstrap solo sirve para el primer owner. */
 
-let orgCount = 0;
+const state = vi.hoisted(() => ({ orgCount: 0, mode: "closed" as "closed" | "bootstrap" }));
 
 vi.mock("@/lib/db", () => ({
   getDb: () => ({
     select: () => ({
-      from: () => Promise.resolve([{ n: orgCount }]),
+      from: () => Promise.resolve([{ n: state.orgCount }]),
     }),
   }),
   schema: { organization: {} },
 }));
+vi.mock("@/lib/env", () => ({
+  getEnv: () => ({ REGISTRATION_MODE: state.mode }),
+}));
 
 import { isPublicSignupAllowed } from "@/server/auth/registration";
 
-afterEach(() => vi.unstubAllEnvs());
-
 describe("registro público cerrado", () => {
-  it("instancia vacía → registro permitido (primer usuario)", async () => {
-    orgCount = 0;
-    vi.stubEnv("ALLOW_SIGNUP", "");
-    expect(await isPublicSignupAllowed()).toBe(true);
-  });
-
-  it("ya existe una organización → cerrado", async () => {
-    orgCount = 1;
-    vi.stubEnv("ALLOW_SIGNUP", "");
+  it("closed bloquea incluso una instancia completamente vacía", async () => {
+    state.orgCount = 0;
+    state.mode = "closed";
     expect(await isPublicSignupAllowed()).toBe(false);
   });
 
-  it("escape ALLOW_SIGNUP=true → permitido aunque exista organización", async () => {
-    orgCount = 1;
-    vi.stubEnv("ALLOW_SIGNUP", "true");
+  it("bootstrap permite exclusivamente el primer propietario", async () => {
+    state.orgCount = 0;
+    state.mode = "bootstrap";
     expect(await isPublicSignupAllowed()).toBe(true);
   });
 
-  it("otros valores del escape NO abren el registro", async () => {
-    orgCount = 1;
-    vi.stubEnv("ALLOW_SIGNUP", "1");
+  it("bootstrap se cierra cuando ya existe una organización", async () => {
+    state.orgCount = 1;
+    state.mode = "bootstrap";
+    expect(await isPublicSignupAllowed()).toBe(false);
+  });
+
+  it("la variable heredada ALLOW_SIGNUP ya no reabre el registro", async () => {
+    state.orgCount = 0;
+    state.mode = "closed";
+    vi.stubEnv("ALLOW_SIGNUP", "true");
     expect(await isPublicSignupAllowed()).toBe(false);
   });
 });

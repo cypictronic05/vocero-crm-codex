@@ -60,7 +60,7 @@ Variables obligatorias (`src/lib/env.ts` las valida en el primer uso; cada una t
 | `META_WEBHOOK_VERIFY_TOKEN` | Verify token y segmento secreto de `/api/webhooks/wa/<token>` |
 | `META_GRAPH_API_VERSION` | Versión de la Graph API (tiene default `v25.0`; las cinco de arriba no) |
 
-Opcionales con efecto grande: `META_APP_SECRET` (firma del webhook), `OPENROUTER_API_TOKEN` / `OPENROUTER_MODEL` (respaldo del proveedor de IA: lo normal es Ajustes → IA, que manda sobre ellas; sin ninguna de las dos cosas no hay Agente ni Laboratorio), `BOT_API_KEY` (abre `/api/bot/*`), `BRAIN_DISPATCH_URL` (con ella y `BOT_API_KEY`, el CRM le despacha cada turno a un cerebro externo y el agente incluido calla), `ALLOW_SIGNUP`, `AGENT_COALESCE_MS`, `WA_MOCK_ENABLED` (solo desarrollo).
+Opcionales con efecto grande: `META_APP_SECRET` (firma del webhook), `OPENROUTER_API_TOKEN` / `OPENROUTER_MODEL` (respaldo del proveedor de IA: lo normal es Ajustes → IA, que manda sobre ellas; sin ninguna de las dos cosas no hay Agente ni Laboratorio), `BOT_API_KEY` (abre `/api/bot/*`), `BRAIN_DISPATCH_URL` (con ella y `BOT_API_KEY`, el CRM le despacha cada turno a un cerebro externo y el agente incluido calla), `REGISTRATION_MODE` (`closed` por defecto; `bootstrap` solo para el primer propietario), `AGENT_COALESCE_MS`, `WA_MOCK_ENABLED` (solo desarrollo).
 
 Banderas de despliegue (apagadas por defecto; su código viaja siempre en `main` y su migración se aplica igual):
 

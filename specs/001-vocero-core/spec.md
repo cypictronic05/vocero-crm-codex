@@ -492,9 +492,10 @@ Ruta B literalmente (modo de pruebas interno) hasta ver la bandeja funcionando.
 
 **Multi-usuario (US7)**
 
-- **FR-060**: El primer registro MUST crear usuario + organización (propietario); con
-  una organización existente el registro público MUST estar cerrado salvo variable de
-  escape explícita.
+- **FR-060**: El registro público MUST estar cerrado por defecto incluso con una base
+  vacía. `REGISTRATION_MODE=bootstrap` MAY admitir exclusivamente el primer propietario
+  y MUST cerrarse al existir una organización; no MUST existir un modo público
+  permanente ni una API que permita crear organizaciones adicionales.
 - **FR-061**: El propietario MUST poder crear cuentas de equipo (email + contraseña
   temporal) desde Configuración, sin emails ni invitaciones.
 - **FR-062**: Login y registro MUST tener limitación de tasa por IP.
