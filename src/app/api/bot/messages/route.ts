@@ -4,6 +4,7 @@ import { getDb, schema } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/api";
 import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
 import { SendError, sendText } from "@/server/inbox/send";
+import { isNightBotActive } from "@/lib/night-bot";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,8 @@ const bodySchema = z.object({
  * que el mensaje queda en el hilo marcado como IA, respeta la ventana de 24 h
  * y hereda el guard de sandbox del Laboratorio.
  *
- * 409 tipados: ai_paused (un humano tomó la conversación) · window_closed ·
- * sandbox_violation.
+ * 409 tipados: ai_paused (un humano tomó la conversación) ·
+ * outside_bot_shift · window_closed · sandbox_violation.
  */
 export async function POST(req: Request) {
   const denied = requireBotKey(req);
@@ -54,6 +55,13 @@ export async function POST(req: Request) {
   if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
   if (!conv.aiEnabled || conv.handoffAt) {
     return apiError(409, "ai_paused", "La IA está en pausa en esta conversación");
+  }
+  if (!isNightBotActive()) {
+    return apiError(
+      409,
+      "outside_bot_shift",
+      "El bot atiende de 22:00 a 06:00 en America/Bogota"
+    );
   }
 
   try {

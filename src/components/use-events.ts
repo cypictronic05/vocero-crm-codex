@@ -12,6 +12,13 @@ export type EventHandlers = {
     error?: string | null;
   }) => void;
   onConversationUpdated?: (data: { conversation: unknown }) => void;
+  onConversationAssignment?: (data: {
+    conversationId: string;
+    fromMemberId: string | null;
+    toMemberId: string | null;
+    assignmentVersion: number;
+    reason: string;
+  }) => void;
   onLabRun?: (data: {
     runId: string;
     status: string;
@@ -53,6 +60,9 @@ export function useEvents(handlers: EventHandlers): void {
     );
     listen("conversation.updated", (d) =>
       handlersRef.current.onConversationUpdated?.(d as never)
+    );
+    listen("conversation.assignment", (d) =>
+      handlersRef.current.onConversationAssignment?.(d as never)
     );
     listen("lab.run", (d) => handlersRef.current.onLabRun?.(d as never));
     listen("booking.updated", (d) =>

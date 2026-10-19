@@ -34,17 +34,21 @@ const HANDOFF_LABELS: Record<string, string> = {
 
 export function ContactPanel({
   conversation,
+  isOwner,
   refreshKey = 0,
   onPatchConversation,
+  onAssignmentChanged,
   onClose,
 }: {
   conversation: ConversationDto;
+  isOwner: boolean;
   /** Aumenta con cada evento SSE relevante: dispara un refetch en vivo. */
   refreshKey?: number;
   onPatchConversation: (patch: {
     aiEnabled?: boolean;
     reactivate?: boolean;
   }) => Promise<void>;
+  onAssignmentChanged: () => void;
   onClose: () => void;
 }) {
   const [notes, setNotes] = useState("");
@@ -60,8 +64,42 @@ export function ContactPanel({
   // toggle "Respondiendo" mentiría cuando el agente aún no se ha
   // configurado/encendido, y pediría la clave de IA aunque conteste Nea.
   const [brain, setBrain] = useState<BrainStatusDto | null>(null);
+  const [members, setMembers] = useState<
+    {
+      id: string;
+      name: string;
+      role: string;
+      status: string;
+      availability: { canSend: boolean };
+    }[]
+  >([]);
+  const [savingAssignment, setSavingAssignment] = useState(false);
 
   const contactId = conversation.contact.id;
+
+  useEffect(() => {
+    if (!isOwner) return;
+    void fetch("/api/settings/team")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (data?.members) setMembers(data.members);
+      })
+      .catch(() => null);
+  }, [isOwner, refreshKey]);
+
+  async function changeAssignment(memberId: string) {
+    setSavingAssignment(true);
+    const response = await fetch(
+      `/api/conversations/${conversation.id}/assignment`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ memberId: memberId || null }),
+      }
+    ).catch(() => null);
+    setSavingAssignment(false);
+    if (response?.ok) onAssignmentChanged();
+  }
 
   const aiConfigured = brain?.embedded.configured ?? false;
   const agentReady = brain?.embedded.answering ?? false;
@@ -204,6 +242,44 @@ export function ContactPanel({
                 {formatPhone(conversation.contact.phone)}
               </p>
             </div>
+          </div>
+
+          <div className="mt-3 rounded-md border bg-subtle px-3 py-2.5">
+            <p className="text-[13px] font-medium">Responsable</p>
+            {isOwner ? (
+              <select
+                aria-label="Responsable de la conversación"
+                className="mt-1.5 w-full rounded-md border border-border-strong bg-background px-2.5 py-2 text-xs"
+                value={conversation.assignee?.id ?? ""}
+                disabled={savingAssignment}
+                onChange={(event) => void changeAssignment(event.target.value)}
+              >
+                <option value="">Sin asignar · cola</option>
+                {members
+                  .filter((member) => member.role === "member")
+                  .map((member) => (
+                    <option
+                      key={member.id}
+                      value={member.id}
+                      disabled={
+                        member.status !== "enabled" ||
+                        !member.availability.canSend
+                      }
+                    >
+                      {member.name}
+                      {member.status !== "enabled"
+                        ? " · suspendida"
+                        : !member.availability.canSend
+                          ? " · fuera de turno"
+                          : ""}
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <p className="mt-1 text-xs text-text-3">
+                {conversation.assignee?.name ?? "Sin asignar"}
+              </p>
+            )}
           </div>
 
           {conversation.handoffAt && (

@@ -6,6 +6,14 @@ import {
   TemplateError,
   templateErrorStatus,
 } from "@/server/whatsapp/templates";
+import {
+  operatorSendDenied,
+  operatorSendErrorResponse,
+} from "@/server/team/http";
+import {
+  ConversationAccessError,
+  withConversationSendLock,
+} from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -19,21 +27,30 @@ const bodySchema = z.object({
 });
 
 export const POST = withAuth(async (session, req: Request, ctx: Params) => {
+  const denied = await operatorSendDenied(session);
+  if (denied) return denied;
   const { id } = await ctx.params;
   const body = await parseBody(req, bodySchema);
   if (!body.ok) return body.response;
 
   try {
-    const result = await sendTemplate({
-      organizationId: session.organizationId,
-      conversationId: id,
-      templateId: body.data.templateId,
-      variables:
-        body.data.variables ??
-        (body.data.variable === undefined ? undefined : [body.data.variable]),
-    });
+    const result = await withConversationSendLock(session, id, () =>
+      sendTemplate({
+        organizationId: session.organizationId,
+        conversationId: id,
+        templateId: body.data.templateId,
+        variables:
+          body.data.variables ??
+          (body.data.variable === undefined ? undefined : [body.data.variable]),
+      })
+    );
     return Response.json({ messageId: result.messageId });
   } catch (err) {
+    const availabilityDenied = operatorSendErrorResponse(err);
+    if (availabilityDenied) return availabilityDenied;
+    if (err instanceof ConversationAccessError) {
+      return apiError(404, "not_found", err.message);
+    }
     if (err instanceof TemplateError) {
       return apiError(templateErrorStatus(err), err.code, err.message);
     }

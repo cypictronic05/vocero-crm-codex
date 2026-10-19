@@ -8,6 +8,7 @@ import { normalizeMx } from "@/lib/meta/client";
 import { digitsOnly, normalizeText } from "@/lib/search";
 import { serializeContact } from "@/server/contacts";
 import { createLeadForContact } from "@/server/inbox/lead-activity";
+import { contactScope } from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,7 @@ export const GET = withAuth(async (session, req: Request) => {
       scoped(
         schema.contact.organizationId,
         session.organizationId,
+        contactScope(session),
         search,
         stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined
       )

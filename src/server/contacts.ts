@@ -3,6 +3,8 @@ import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { effectiveSource } from "@/server/contact-source";
 import type { FichaDto, PriorityValue } from "@/lib/types";
+import type { SessionContext } from "@/lib/auth/session";
+import { contactScope, leadScope } from "@/server/assignments/access";
 
 export function serializeContact(
   c: typeof schema.contact.$inferSelect,
@@ -26,10 +28,7 @@ export function serializeContact(
   };
 }
 
-export async function getContactById(
-  organizationId: string,
-  contactId: string
-) {
+export async function getContactById(session: SessionContext, contactId: string) {
   const db = getDb();
   const rows = await db
     .select()
@@ -37,7 +36,8 @@ export async function getContactById(
     .where(
       scoped(
         schema.contact.organizationId,
-        organizationId,
+        session.organizationId,
+        contactScope(session),
         eq(schema.contact.id, contactId)
       )
     )
@@ -46,10 +46,7 @@ export async function getContactById(
 }
 
 /** Etapa actual del lead del contacto (si existe). */
-export async function getContactStage(
-  organizationId: string,
-  contactId: string
-) {
+export async function getContactStage(session: SessionContext, contactId: string) {
   const db = getDb();
   const rows = await db
     .select({ stage: schema.pipelineStage, lead: schema.lead })
@@ -61,7 +58,8 @@ export async function getContactStage(
     .where(
       scoped(
         schema.lead.organizationId,
-        organizationId,
+        session.organizationId,
+        leadScope(session),
         eq(schema.lead.contactId, contactId)
       )
     )

@@ -1,5 +1,6 @@
 ﻿import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { exists } from "drizzle-orm";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import type { LossReason, StageChangeSource } from "@/lib/types";
@@ -49,6 +50,8 @@ export type MoveInput = {
    * la tarjeta y toca el monto en la misma acción.
    */
   extra?: Record<string, unknown>;
+  /** Presente en acciones humanas de miembros: revalida la asignación. */
+  allowedMemberId?: string;
 };
 
 export async function moveLeadToStage(input: MoveInput): Promise<MoveResult> {
@@ -72,7 +75,28 @@ export async function moveLeadToStage(input: MoveInput): Promise<MoveResult> {
         scoped(
           schema.lead.organizationId,
           input.organizationId,
-          eq(schema.lead.id, input.leadId)
+          eq(schema.lead.id, input.leadId),
+          input.allowedMemberId
+            ? exists(
+                tx
+                  .select({ id: schema.conversation.id })
+                  .from(schema.conversation)
+                  .where(
+                    and(
+                      eq(
+                        schema.conversation.organizationId,
+                        input.organizationId
+                      ),
+                      eq(schema.conversation.contactId, schema.lead.contactId),
+                      eq(schema.conversation.isTest, false),
+                      eq(
+                        schema.conversation.assignedMemberId,
+                        input.allowedMemberId
+                      )
+                    )
+                  )
+              )
+            : undefined
         )
       )
       .limit(1);
@@ -116,7 +140,28 @@ export async function moveLeadToStage(input: MoveInput): Promise<MoveResult> {
         scoped(
           schema.lead.organizationId,
           input.organizationId,
-          eq(schema.lead.id, input.leadId)
+          eq(schema.lead.id, input.leadId),
+          input.allowedMemberId
+            ? exists(
+                tx
+                  .select({ id: schema.conversation.id })
+                  .from(schema.conversation)
+                  .where(
+                    and(
+                      eq(
+                        schema.conversation.organizationId,
+                        input.organizationId
+                      ),
+                      eq(schema.conversation.contactId, schema.lead.contactId),
+                      eq(schema.conversation.isTest, false),
+                      eq(
+                        schema.conversation.assignedMemberId,
+                        input.allowedMemberId
+                      )
+                    )
+                  )
+              )
+            : undefined
         )
       )
       .returning();

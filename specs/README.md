@@ -19,6 +19,9 @@ producto** — y saberlo antes de leerla ahorra una confusión.
 | `020-token-ia-ui` | Ligero, con el modelo de datos dentro | spec (puerto de `ai_credentials` de Vocero Cloud, #85: Ajustes → IA, migración aditiva `0015`, sin registro de llamadas) |
 | `021-despacho-estandar` | Ciclo completo | spec, plan, data-model, 1 contrato, tasks (#89: el CRM le despacha cada turno al cerebro; puerto del despachador de Vocero Cloud, migración aditiva `0016`) |
 | `025-despacho-recuerda` | Ciclo completo | spec, plan, tasks (el despacho anota qué mensajes debe; puerto de Vocero Cloud #111, #116 y #117, migración aditiva `0017`; enmienda el contrato del 021) |
+| `026-disponibilidad-equipo` | Ciclo completo | spec, plan, data-model, tasks (estado administrativo, turnos semanales en America/Bogota, auditoría y bloqueo de envío humano) |
+| `027-asignacion-conversaciones` | Ciclo completo | spec, plan, data-model, tasks (asignación transaccional, cola, relevo, autorización e historial) |
+| `028-bot-nocturno` | Ciclo completo | spec, plan, tasks (bot de 22:00 a 06:00 en America/Bogota; agente incluido y cerebro externo) |
 
 Los tres carriles —ciclo completo, ligero y exento— están definidos en el
 [Principio VI de la constitución](../.specify/memory/constitution.md). El

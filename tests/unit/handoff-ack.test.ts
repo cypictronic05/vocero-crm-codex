@@ -147,11 +147,16 @@ function turno(text: string, conv = conversacion()) {
  * cargada, y la prueba que expiraba seguía corriendo en segundo plano y se
  * comía la cola de selects de la siguiente. Se carga UNA vez, con margen.
  */
-let runAgentTurn: (conversationId: string) => Promise<unknown>;
+let runAgentTurn: (
+  conversationId: string,
+  options?: { at?: Date }
+) => Promise<unknown>;
 let SendError: typeof import("@/server/inbox/send").SendError;
 
 async function correrTurno() {
-  await runAgentTurn("cv_1");
+  await runAgentTurn("cv_1", {
+    at: new Date("2026-10-19T04:00:00.000Z"),
+  });
 }
 
 describe("acuse del patrón de respaldo antes de traspasar (FR-022)", () => {

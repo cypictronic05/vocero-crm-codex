@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { getBranding } from "@/server/branding";
+import { leadScope } from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,13 @@ export const GET = withAuth(async (session) => {
         eq(schema.conversation.isTest, false)
       )
     )
-    .where(scoped(schema.lead.organizationId, session.organizationId))
+    .where(
+      scoped(
+        schema.lead.organizationId,
+        session.organizationId,
+        leadScope(session)
+      )
+    )
     .orderBy(asc(schema.lead.position));
 
   // La moneda del negocio viaja con el tablero: el cliente suma sus columnas y

@@ -2,6 +2,14 @@ import { apiError, withAuth } from "@/lib/api";
 import { getConversation } from "@/server/inbox/queries";
 import { SendError, sendMediaMessage } from "@/server/inbox/send";
 import { MediaValidationError } from "@/server/whatsapp/media";
+import {
+  operatorSendDenied,
+  operatorSendErrorResponse,
+} from "@/server/team/http";
+import {
+  ConversationAccessError,
+  withConversationSendLock,
+} from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +31,10 @@ const SEND_ERROR_STATUS: Record<SendError["code"], number> = {
  * tamaño ocurre ANTES de tocar Graph (413/415 con el límite en el mensaje).
  */
 export const POST = withAuth(async (session, req: Request, ctx: Params) => {
+  const denied = await operatorSendDenied(session);
+  if (denied) return denied;
   const { id } = await ctx.params;
-  const conv = await getConversation(session.organizationId, id);
+  const conv = await getConversation(session, id);
   if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
 
   const form = await req.formData().catch(() => null);
@@ -44,18 +54,25 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   const data = Buffer.from(await file.arrayBuffer());
 
   try {
-    const result = await sendMediaMessage({
-      conversationId: id,
-      organizationId: session.organizationId,
-      file: {
-        data,
-        mimeType: file.type || "application/octet-stream",
-        fileName: file.name || undefined,
-      },
-      caption,
-    });
+    const result = await withConversationSendLock(session, id, () =>
+      sendMediaMessage({
+        conversationId: id,
+        organizationId: session.organizationId,
+        file: {
+          data,
+          mimeType: file.type || "application/octet-stream",
+          fileName: file.name || undefined,
+        },
+        caption,
+      })
+    );
     return Response.json({ messageId: result.messageId }, { status: 201 });
   } catch (err) {
+    const availabilityDenied = operatorSendErrorResponse(err);
+    if (availabilityDenied) return availabilityDenied;
+    if (err instanceof ConversationAccessError) {
+      return apiError(404, "not_found", err.message);
+    }
     if (err instanceof MediaValidationError) {
       return apiError(
         err.code === "too_large" ? 413 : 415,

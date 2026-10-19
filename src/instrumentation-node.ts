@@ -3,6 +3,7 @@ import { getDb, schema } from "@/lib/db";
 import { mediaDirStatus } from "@/server/media-dir";
 import { leerConfigDespacho } from "@/server/brains/config";
 import { iniciarWorker, tanda } from "@/server/dispatch/worker";
+import { startAssignmentWorker } from "@/server/assignments/worker";
 
 /**
  * 008 — Aviso al arranque si MEDIA_DIR no es escribible. Sin esto, el primer
@@ -81,4 +82,8 @@ export function resumeDispatch(): void {
       "[boot] BRAIN_DISPATCH_URL está definida pero falta BOT_API_KEY (mínimo 16 caracteres): el despacho al cerebro queda INACTIVO."
     );
   }
+}
+
+export function resumeAssignments(): void {
+  startAssignmentWorker();
 }

@@ -113,17 +113,19 @@ CRM no impone un cuestionario.
     token de Meta nunca viajó al bot.
 28. Con la IA pausada (handoff), el mismo envío → **409** `ai_paused` y el
     outbox NO cambia: el rechazo ocurre antes de tocar Meta.
-29. Con la ventana de 24 h cerrada → **409** `window_closed`. El bot no puede
+29. Fuera del turno nocturno `22:00–06:00` en `America/Bogota` → **409**
+    `outside_bot_shift`; no se persiste salida ni se toca Meta.
+30. Con la ventana de 24 h cerrada → **409** `window_closed`. El bot no puede
     esquivar la regla de Meta; para eso está el envío de plantilla desde la app.
-30. En una conversación del Laboratorio → **409** `sandbox_violation`.
+31. En una conversación del Laboratorio → **409** `sandbox_violation`.
 
 ## El bot pide un humano
 
-31. `POST /api/bot/handoff {conversationId, reason}` con la key → **200**, la
+32. `POST /api/bot/handoff {conversationId, reason}` con la key → **200**, la
     conversación queda con `aiEnabled: false`, su `handoffAt` y el motivo. En la
     bandeja se ve al instante, sin recargar (mismo evento que el toggle).
-32. Repetirlo es idempotente: no pisa la hora ni el motivo del primero.
-33. Un `reason` que no está en el catálogo —o ausente— **no tira el handoff**:
+33. Repetirlo es idempotente: no pisa la hora ni el motivo del primero.
+34. Un `reason` que no está en el catálogo —o ausente— **no tira el handoff**:
     cae a `modelo` y la IA se pausa igual. Un 422 aquí dejaría al bot
     vendiéndole a alguien que acaba de pedir un humano.
 34. Conversación inexistente → **404**.

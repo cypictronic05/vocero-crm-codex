@@ -6,6 +6,7 @@ import { scoped } from "@/lib/db/tenant";
 import { publish } from "@/server/events/bus";
 import { moveLeadToStage } from "@/server/leads/stage-history";
 import { getBranding } from "@/server/branding";
+import { canAccessLead, leadScope } from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,9 @@ const patchSchema = z.object({
 
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
+  if (!(await canAccessLead(session, id))) {
+    return apiError(404, "not_found", "Lead no encontrado");
+  }
   const body = await parseBody(req, patchSchema);
   if (!body.ok) return body.response;
 
@@ -88,6 +92,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
         scoped(
           schema.lead.organizationId,
           session.organizationId,
+          leadScope(session),
           eq(schema.lead.id, id)
         )
       )
@@ -106,6 +111,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
     lossReason: body.data.lossReason ?? null,
     lossNote: body.data.lossNote ?? null,
     extra,
+    allowedMemberId: session.role === "owner" ? undefined : session.memberId,
   });
 
   if (!res.ok) {

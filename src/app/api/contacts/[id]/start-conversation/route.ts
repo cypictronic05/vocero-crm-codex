@@ -12,6 +12,17 @@ import {
   TemplateError,
   templateErrorStatus,
 } from "@/server/whatsapp/templates";
+import {
+  operatorSendDenied,
+  operatorSendErrorResponse,
+} from "@/server/team/http";
+import { ensureConversationAssignment } from "@/server/assignments/service";
+import {
+  assertConversationAccess,
+  canAccessContact,
+  ConversationAccessError,
+  withConversationSendLock,
+} from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +42,13 @@ const bodySchema = z.object({
  * ensuciaría la Bandeja y rompería su orden por último mensaje.
  */
 export const POST = withAuth(async (session, req: Request, ctx: Params) => {
+  const denied = await operatorSendDenied(session);
+  if (denied) return denied;
   const { id } = await ctx.params;
-  const contact = await getContactById(session.organizationId, id);
+  if (!(await canAccessContact(session, id))) {
+    return apiError(404, "not_found", "Contacto no encontrado");
+  }
+  const contact = await getContactById(session, id);
   if (!contact) return apiError(404, "not_found", "Contacto no encontrado");
   if (!contact.phone && !contact.waIdentity) {
     return apiError(422, "no_identity", "Este contacto no tiene a dónde escribir");
@@ -55,31 +71,42 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
     )
     .limit(1);
 
-  // Gastar una plantilla teniendo la ventana abierta es tirar dinero y
-  // reputación de plantilla: se avisa en vez de enviarla.
-  if (existing[0] && isWindowOpen(existing[0].lastInboundAt)) {
-    return apiError(
-      409,
-      "window_open",
-      "Esta persona te escribió hace menos de 24 h: puedes responderle directo desde la Bandeja, sin plantilla"
-    );
-  }
-
   const conversation =
     existing[0] ?? (await getOrCreateConversation(session.organizationId, id));
+  await ensureConversationAssignment({
+    organizationId: session.organizationId,
+    conversationId: conversation.id,
+  });
 
   try {
-    const result = await sendTemplate({
-      organizationId: session.organizationId,
-      conversationId: conversation.id,
-      templateId: body.data.templateId,
-      variables: body.data.variables,
-    });
+    await assertConversationAccess(session, conversation.id);
+    // Gastar una plantilla teniendo la ventana abierta es tirar dinero y
+    // reputación de plantilla: se avisa solo después de autorizar el hilo.
+    if (isWindowOpen(conversation.lastInboundAt)) {
+      return apiError(
+        409,
+        "window_open",
+        "Esta persona te escribió hace menos de 24 h: puedes responderle directo desde la Bandeja, sin plantilla"
+      );
+    }
+    const result = await withConversationSendLock(session, conversation.id, () =>
+      sendTemplate({
+        organizationId: session.organizationId,
+        conversationId: conversation.id,
+        templateId: body.data.templateId,
+        variables: body.data.variables,
+      })
+    );
     return Response.json({
       messageId: result.messageId,
       conversationId: conversation.id,
     });
   } catch (err) {
+    const availabilityDenied = operatorSendErrorResponse(err);
+    if (availabilityDenied) return availabilityDenied;
+    if (err instanceof ConversationAccessError) {
+      return apiError(404, "not_found", err.message);
+    }
     if (err instanceof TemplateError) {
       return apiError(templateErrorStatus(err), err.code, err.message);
     }

@@ -6,6 +6,10 @@ import { listBookings, listBookingsInRange } from "@/server/agenda/queries";
 import { getSettings } from "@/server/agenda/settings";
 import { createBlock, createSessionBooking } from "@/server/agenda/service";
 import { bookingErrorResponse, bookingPayload } from "@/server/agenda/http";
+import {
+  canAccessConversation,
+  canAccessContact,
+} from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -26,13 +30,13 @@ export const GET = withAuth(async (session, req: Request) => {
   const query = parseRangeQuery(url.searchParams.get("from"), url.searchParams.get("to"));
   if (!query.ok) return apiError(422, "invalid_range", query.message);
   if (!query.range) {
-    const bookings = await listBookings(session.organizationId);
+    const bookings = await listBookings(session);
     return Response.json({ bookings });
   }
 
   const settings = await getSettings(session.organizationId);
   const { bookings, truncated } = await listBookingsInRange(
-    session.organizationId,
+    session,
     query.range,
     settings
   );
@@ -85,6 +89,20 @@ export const POST = withAuth(async (session, req: Request) => {
         notes: body.data.notes ?? null,
       });
       return Response.json({ booking: { id: block.id } }, { status: 201 });
+    }
+
+    if (session.role !== "owner") {
+      // Una cita manual es información de una conversación: los miembros no
+      // pueden crearla para contactos sueltos o conversaciones de terceros.
+      if (!body.data.conversationId) {
+        return apiError(404, "not_found", "Conversación no encontrada");
+      }
+      if (
+        !(await canAccessConversation(session, body.data.conversationId)) ||
+        !(await canAccessContact(session, body.data.contactId))
+      ) {
+        return apiError(404, "not_found", "Contacto no encontrado");
+      }
     }
 
     const result = await createSessionBooking({

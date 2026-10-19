@@ -24,6 +24,7 @@ import {
 import { registrarAnuncioDeOrigen } from "@/server/attribution/store";
 import { onLeadActivity } from "@/server/inbox/lead-activity";
 import { maybeRunAgentTurn } from "@/server/ai/trigger";
+import { ensureConversationAssignment } from "@/server/assignments/service";
 
 /** Tipos de contenido soportados; el resto se ignora sin error. */
 const SUPPORTED_TYPES = new Set([
@@ -511,6 +512,10 @@ export async function ingestInboundMessage(input: {
     .where(eq(schema.conversation.id, conversation.id));
 
   await onLeadActivity(organizationId, contact.id, waTimestamp);
+  await ensureConversationAssignment({
+    organizationId,
+    conversationId: conversation.id,
+  });
 
   publish(organizationId, {
     type: "message.new",

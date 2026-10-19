@@ -7,6 +7,7 @@ import {
   MapPin,
   Paperclip,
   Send,
+  ShieldAlert,
   UserRound,
   X,
 } from "lucide-react";
@@ -14,6 +15,10 @@ import type { ConversationDto, TemplateDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatBytes, formatRemaining } from "./helpers";
 import { TemplateSender } from "./template-sender";
+import {
+  availabilityMessage,
+  useOperatorAvailability,
+} from "@/components/use-operator-availability";
 
 /** 008 — Panel secundario del clip: formulario de ubicación o contacto. */
 type AttachPanel = "location" | "contact" | null;
@@ -53,6 +58,7 @@ export function Composer({
   const [contactPhone, setContactPhone] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { availability } = useOperatorAvailability();
 
   useEffect(() => {
     let cancelled = false;
@@ -93,8 +99,11 @@ export function Composer({
   async function apiSend(path: string, init: RequestInit): Promise<string | null> {
     const res = await fetch(path, init);
     if (res.ok) return null;
-    const data = (await res.json().catch(() => null)) as { message?: string } | null;
-    return data?.message ?? `Error ${res.status}`;
+    const data = (await res.json().catch(() => null)) as {
+      message?: string;
+      error?: { message?: string };
+    } | null;
+    return data?.error?.message ?? data?.message ?? `Error ${res.status}`;
   }
 
   async function submit() {
@@ -195,6 +204,20 @@ export function Composer({
     setContactName("");
     setContactPhone("");
     onSent();
+  }
+
+  if (!availability?.canSend) {
+    return (
+      <div className="border-t bg-background px-[18px] py-3.5">
+        <div className="flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint p-3 text-sm text-warning-text">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
+          <div>
+            <p className="font-medium">Envío no disponible</p>
+            <p className="opacity-80">{availabilityMessage(availability)}</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!conversation.windowOpen) {

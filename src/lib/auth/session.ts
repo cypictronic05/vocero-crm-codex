@@ -4,6 +4,7 @@ import { resolveMembership } from "@/server/auth/on-signup";
 
 export type SessionContext = {
   userId: string;
+  memberId: string;
   organizationId: string;
   role: string;
 };
@@ -31,6 +32,7 @@ export async function requireSession(): Promise<SessionContext> {
   }
   return {
     userId: session.user.id,
+    memberId: membership.id,
     organizationId: membership.organizationId,
     role: membership.role,
   };

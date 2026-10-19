@@ -105,7 +105,7 @@ cualquier otra conversación.
 | Endpoint | Para qué |
 |---|---|
 | `GET /api/bot/context` | Quién es la persona, su etapa, si un humano tomó la conversación y si la ventana de 24 h sigue abierta. Con la agenda encendida, también sus citas (`booking`): la próxima, la que ya pasó sin cerrarse y la última que se cerró (cancelada, no asistió o realizada) |
-| `POST /api/bot/messages` | Responder. Sale por el mismo camino que el composer y queda marcado como IA |
+| `POST /api/bot/messages` | Responder durante el turno nocturno de Nexora (22:00–06:00, America/Bogota). Sale por el mismo camino que el composer y queda marcado como IA |
 | `GET /api/bot/profile` | El perfil del agente y el knowledge base que editaste en la app |
 | `PUT /api/bot/ficha` | Guardar lo que tu bot descubre del lead (claves libres: cada negocio califica distinto) |
 | `POST /api/bot/handoff` | Devolver la conversación a un humano |
@@ -115,9 +115,10 @@ cualquier otra conversación.
 | `GET /api/bot/availability` | Con la agenda encendida: los horarios para ofrecer, que quedan registrados como ofrecidos. Con `date=AAAA-MM-DD`, todas las horas libres de ese día; `query` dice hasta dónde llega lo consultado |
 | `POST` · `PATCH /api/bot/bookings` | Con la agenda encendida: reservar (201) o mover (200) una cita, solo en un horario que se ofreció |
 
-Los 409 vienen tipados (`ai_paused`, `window_closed`, `sandbox_violation`) para
-que tu bot sepa si callarse, mandar plantilla o rendirse. El guion de pruebas
-está en [`tests/e2e/us-bot-api.md`](tests/e2e/us-bot-api.md).
+Los 409 vienen tipados (`ai_paused`, `outside_bot_shift`, `window_closed`,
+`sandbox_violation`) para que tu bot sepa si callarse, esperar el próximo turno,
+mandar plantilla o rendirse. El guion de pruebas está en
+[`tests/e2e/us-bot-api.md`](tests/e2e/us-bot-api.md).
 
 La API primero revisa la llave y después cuenta: con la llave buena caben 1200
 llamadas por minuto; sin llave o con una mala, 30 por minuto desde la misma IP

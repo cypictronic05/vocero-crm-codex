@@ -3,6 +3,8 @@ import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
 import type { ConversationDto } from "@/lib/types";
+import type { SessionContext } from "@/lib/auth/session";
+import { conversationScope } from "@/server/assignments/access";
 
 /**
  * 018 — El anuncio de origen viaja con la conversación. La llave única
@@ -39,9 +41,10 @@ function aAnuncioDeLista(
 }
 
 export async function listConversations(
-  organizationId: string,
+  session: SessionContext,
   since?: Date
 ): Promise<ConversationDto[]> {
+  const { organizationId } = session;
   const db = getDb();
   const previewSql = sql<string | null>`(
     select coalesce(m.text, m.type)
@@ -64,6 +67,8 @@ export async function listConversations(
       preview: previewSql,
       stageName: stageSql,
       anuncio: anuncioDeLista,
+      assigneeId: schema.member.id,
+      assigneeName: schema.user.name,
     })
     .from(schema.conversation)
     .innerJoin(
@@ -71,11 +76,17 @@ export async function listConversations(
       eq(schema.conversation.contactId, schema.contact.id)
     )
     .leftJoin(schema.adAttribution, anuncioDeLaConversacion)
+    .leftJoin(
+      schema.member,
+      eq(schema.member.id, schema.conversation.assignedMemberId)
+    )
+    .leftJoin(schema.user, eq(schema.user.id, schema.member.userId))
     .where(
       scoped(
         schema.conversation.organizationId,
         organizationId,
         eq(schema.conversation.isTest, false),
+        conversationScope(session),
         since ? gt(schema.conversation.updatedAt, since) : undefined
       )
     )
@@ -87,21 +98,27 @@ export async function listConversations(
       r.contact,
       r.preview,
       r.stageName,
-      aAnuncioDeLista(r.anuncio)
+      aAnuncioDeLista(r.anuncio),
+      r.assigneeId && r.assigneeName
+        ? { id: r.assigneeId, name: r.assigneeName }
+        : null
     )
   );
 }
 
 export async function getConversation(
-  organizationId: string,
+  session: SessionContext,
   conversationId: string
 ) {
+  const { organizationId } = session;
   const db = getDb();
   const rows = await db
     .select({
       conversation: schema.conversation,
       contact: schema.contact,
       anuncio: anuncioDeLista,
+      assigneeId: schema.member.id,
+      assigneeName: schema.user.name,
     })
     .from(schema.conversation)
     .innerJoin(
@@ -109,11 +126,17 @@ export async function getConversation(
       eq(schema.conversation.contactId, schema.contact.id)
     )
     .leftJoin(schema.adAttribution, anuncioDeLaConversacion)
+    .leftJoin(
+      schema.member,
+      eq(schema.member.id, schema.conversation.assignedMemberId)
+    )
+    .leftJoin(schema.user, eq(schema.user.id, schema.member.userId))
     .where(
       scoped(
         schema.conversation.organizationId,
         organizationId,
         eq(schema.conversation.id, conversationId)
+        ,conversationScope(session)
       )
     )
     .limit(1);
@@ -122,10 +145,11 @@ export async function getConversation(
 }
 
 export async function listMessages(
-  organizationId: string,
+  session: SessionContext,
   conversationId: string,
   since?: Date
 ) {
+  const { organizationId } = session;
   const db = getDb();
   return db
     .select({ message: schema.message, media: schema.mediaAsset })
@@ -134,11 +158,16 @@ export async function listMessages(
       schema.mediaAsset,
       eq(schema.message.mediaAssetId, schema.mediaAsset.id)
     )
+    .innerJoin(
+      schema.conversation,
+      eq(schema.conversation.id, schema.message.conversationId)
+    )
     .where(
       scoped(
         schema.message.organizationId,
         organizationId,
         eq(schema.message.conversationId, conversationId),
+        conversationScope(session),
         since ? gt(schema.message.createdAt, since) : undefined
       )
     )
@@ -150,12 +179,15 @@ export function serializeConversation(
   contact: typeof schema.contact.$inferSelect,
   preview: string | null = null,
   stageName: string | null = null,
-  anuncio: ConversationDto["anuncio"] = null
+  anuncio: ConversationDto["anuncio"] = null,
+  assignee: ConversationDto["assignee"] = null
 ): ConversationDto {
   return {
     id: c.id,
     channel: c.channel,
     contact: { id: contact.id, name: contact.name, phone: contact.phone },
+    assignee,
+    assignmentVersion: c.assignmentVersion,
     stageName,
     aiEnabled: c.aiEnabled,
     handoffAt: c.handoffAt?.toISOString() ?? null,
@@ -171,11 +203,12 @@ export function serializeConversation(
 }
 
 export async function updateConversation(
-  organizationId: string,
+  session: SessionContext,
   conversationId: string,
   patch: { aiEnabled?: boolean; reactivate?: boolean; markRead?: boolean }
 ) {
   const db = getDb();
+  const { organizationId } = session;
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.aiEnabled !== undefined) set.aiEnabled = patch.aiEnabled;
   if (patch.reactivate) {
@@ -192,6 +225,7 @@ export async function updateConversation(
       and(
         eq(schema.conversation.organizationId, organizationId),
         eq(schema.conversation.id, conversationId)
+        ,conversationScope(session)
       )
     )
     .returning();

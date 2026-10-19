@@ -93,8 +93,35 @@ export const member = pgTable("member", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   role: text("role").notNull().default("member"),
+  status: text("status").notNull().default("enabled"),
+  weeklySchedule: jsonb("weekly_schedule")
+    .$type<{ day: number; startMinute: number; endMinute: number }[]>()
+    .notNull()
+    .default(
+      sql`'[{"day":0,"startMinute":360,"endMinute":1320},{"day":1,"startMinute":360,"endMinute":1320},{"day":2,"startMinute":360,"endMinute":1320},{"day":3,"startMinute":360,"endMinute":1320},{"day":4,"startMinute":360,"endMinute":1320},{"day":5,"startMinute":360,"endMinute":1320},{"day":6,"startMinute":360,"endMinute":1320}]'::jsonb`
+    ),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/** Auditoría append-only de altas y cambios de disponibilidad del equipo. */
+export const teamAuditEvent = pgTable(
+  "team_audit_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    targetMemberId: text("target_member_id").notNull(),
+    action: text("action").notNull(),
+    before: jsonb("before").$type<Record<string, unknown> | null>(),
+    after: jsonb("after").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("team_audit_event_org_created_idx").on(table.organizationId, table.createdAt)]
+);
 
 export const invitation = pgTable("invitation", {
   id: text("id").primaryKey(),
@@ -363,6 +390,13 @@ export const conversation = pgTable(
      */
     channelThreadRef: text("channel_thread_ref"),
     aiEnabled: boolean("ai_enabled").notNull().default(true),
+    /** 027 — Responsable humano. null significa cola sin asignar. */
+    assignedMemberId: text("assigned_member_id").references(() => member.id, {
+      onDelete: "set null",
+    }),
+    assignedAt: timestamp("assigned_at"),
+    /** Incrementa con cada relevo para invalidar estados obsoletos de UI. */
+    assignmentVersion: integer("assignment_version").notNull().default(0),
     handoffAt: timestamp("handoff_at"),
     handoffReason: text("handoff_reason", {
       // 008: manual_reply = el dueño respondió desde la app del teléfono.
@@ -388,6 +422,49 @@ export const conversation = pgTable(
       .on(t.organizationId, t.contactId)
       .where(sql`${t.isTest} = false`),
     index("conversation_org_last_idx").on(t.organizationId, t.lastMessageAt),
+    index("conversation_org_assignee_idx").on(
+      t.organizationId,
+      t.assignedMemberId,
+      t.lastMessageAt
+    ),
+  ]
+);
+
+/** 027 — Historial append-only de responsables y pasos por la cola. */
+export const conversationAssignmentEvent = pgTable(
+  "conversation_assignment_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    // Se guardan como texto para que una baja futura no borre la auditoría.
+    fromMemberId: text("from_member_id"),
+    toMemberId: text("to_member_id"),
+    reason: text("reason", {
+      enum: [
+        "automatic",
+        "manual",
+        "suspended",
+        "shift_ended",
+        "queued_no_available",
+      ],
+    }).notNull(),
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("cae_org_conversation_created_idx").on(
+      t.organizationId,
+      t.conversationId,
+      t.createdAt
+    ),
+    index("cae_org_created_idx").on(t.organizationId, t.createdAt),
   ]
 );
 

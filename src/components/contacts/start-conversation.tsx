@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Send } from "lucide-react";
+import { Send, ShieldAlert } from "lucide-react";
 import type { TemplateDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  availabilityMessage,
+  useOperatorAvailability,
+} from "@/components/use-operator-availability";
 
 /** Cuenta {{1}}..{{n}} igual que el servidor, para pedir sus valores. */
 function countVariables(body: string): number {
@@ -34,6 +38,7 @@ export function StartConversation({
   const [vars, setVars] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { availability } = useOperatorAvailability();
 
   useEffect(() => {
     void (async () => {
@@ -71,6 +76,15 @@ export function StartConversation({
       return;
     }
     onStarted(data?.conversationId ?? "");
+  }
+
+  if (!availability?.canSend) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint px-3 py-2.5 text-sm text-warning-text">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
+        <p>{availabilityMessage(availability)}</p>
+      </div>
+    );
   }
 
   if (templates === null) {

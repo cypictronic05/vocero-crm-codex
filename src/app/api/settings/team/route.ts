@@ -1,34 +1,15 @@
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getAuth, runInternalSignup } from "@/lib/auth";
-import { getDb, schema } from "@/lib/db";
-import { newId } from "@/lib/db/ids";
-import { scoped } from "@/lib/db/tenant";
+import { canManageTeam } from "@/lib/team";
+import { createTeamMembership, listTeamMembers } from "@/server/team/service";
 
 export const dynamic = "force-dynamic";
 
 export const GET = withAuth(async (session) => {
-  const db = getDb();
-  const members = await db
-    .select({
-      id: schema.member.id,
-      role: schema.member.role,
-      createdAt: schema.member.createdAt,
-      name: schema.user.name,
-      email: schema.user.email,
-    })
-    .from(schema.member)
-    .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
-    .where(scoped(schema.member.organizationId, session.organizationId));
   return Response.json({
-    members: members.map((m) => ({
-      id: m.id,
-      role: m.role,
-      name: m.name,
-      email: m.email,
-      createdAt: m.createdAt.toISOString(),
-    })),
+    members: await listTeamMembers(session.organizationId),
+    canManage: canManageTeam(session.role),
   });
 });
 
@@ -40,7 +21,7 @@ const createSchema = z.object({
 
 /** Alta de cuenta de equipo (owner only): email + contraseña temporal (FR-061). */
 export const POST = withAuth(async (session, req: Request) => {
-  if (session.role !== "owner") {
+  if (!canManageTeam(session.role)) {
     return apiError(403, "forbidden", "Solo el propietario puede crear cuentas");
   }
   const body = await parseBody(req, createSchema);
@@ -68,16 +49,11 @@ export const POST = withAuth(async (session, req: Request) => {
     return apiError(422, "invalid", message);
   }
 
-  const db = getDb();
-  await db
-    .insert(schema.member)
-    .values({
-      id: newId("member"),
-      organizationId: session.organizationId,
-      userId: newUserId,
-      role: "member",
-    })
-    .onConflictDoNothing();
+  await createTeamMembership({
+    organizationId: session.organizationId,
+    actorUserId: session.userId,
+    userId: newUserId,
+  });
 
   return Response.json({ ok: true }, { status: 201 });
 });

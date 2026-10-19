@@ -358,6 +358,16 @@ export function ConversationList({
                             Atención humana
                           </span>
                         )}
+                        {c.assignee ? (
+                          <span className="inline-flex min-w-0 items-center gap-1 rounded-full border border-border-strong bg-chip px-2 py-0.5 text-[11px] text-text-2">
+                            <UserRound className="h-3 w-3 shrink-0" strokeWidth={1.7} />
+                            <span className="truncate">{c.assignee.name}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full border border-warning-soft bg-warning-tint px-2 py-0.5 text-[11px] text-warning-text">
+                            Sin asignar
+                          </span>
+                        )}
                         {c.anuncio && (
                           <span
                             className="inline-flex min-w-0 items-center gap-1 rounded-full border border-info-soft bg-info-tint px-2 py-0.5 text-[11px] text-info-text"

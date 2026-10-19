@@ -1,5 +1,6 @@
 import { requireSession, UnauthorizedError } from "@/lib/auth/session";
 import { subscribe } from "@/server/events/bus";
+import { canReceiveSseEvent } from "@/server/events/access";
 
 /**
  * Canal SSE de la bandeja (contrato sse.md).
@@ -38,11 +39,14 @@ export async function GET(req: Request) {
       send(`: conectado\n\n`);
 
       const unsubscribe = subscribe(organizationId, (event) => {
-        send(
-          `event: ${event.type}\n` +
-            `id: ${Date.now()}\n` +
-            `data: ${JSON.stringify(event.data)}\n\n`
-        );
+        void canReceiveSseEvent(session, event).then((allowed) => {
+          if (!allowed) return;
+          send(
+            `event: ${event.type}\n` +
+              `id: ${Date.now()}\n` +
+              `data: ${JSON.stringify(event.data)}\n\n`
+          );
+        });
       });
 
       const heartbeat = setInterval(() => send(`: ping\n\n`), HEARTBEAT_MS);

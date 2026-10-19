@@ -26,6 +26,7 @@ import {
 import { agendaEnabled } from "@/server/agenda/flag";
 import { bookSlot, offerSlots } from "@/server/agenda/agent";
 import { getOffers, mapaDeHuecosParaModelo } from "@/server/agenda/offers";
+import { isNightBotActive } from "@/lib/night-bot";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -137,7 +138,7 @@ export type TurnoLeido = { vistos: string[] };
  */
 export async function runAgentTurn(
   conversationId: string,
-  opciones: { debidos?: readonly string[] } = {}
+  opciones: { debidos?: readonly string[]; at?: Date } = {}
 ): Promise<TurnoLeido | undefined> {
   const db = getDb();
   const convRows = await db
@@ -148,6 +149,15 @@ export async function runAgentTurn(
   const conversation = convRows[0];
   if (!conversation) return;
   const organizationId = conversation.organizationId;
+
+  // 028 — El Laboratorio conserva sus turnos a cualquier hora. Una
+  // conversación real solo pertenece al bot durante la noche de Bogotá.
+  if (
+    !conversation.isTest &&
+    !isNightBotActive(opciones.at ?? new Date())
+  ) {
+    return;
+  }
 
   // ¿Esta organización tiene IA? Lo guardado en Ajustes → IA, o si no, el
   // entorno. Sin proveedor, o con la llave pausada por el proveedor, el
@@ -220,7 +230,7 @@ export async function runAgentTurn(
   // orden que el camino del modelo (`farewell` y luego handoff): callar ante
   // quien pide una persona se lee como que el bot dejó de contestar.
   if (lastInbound.text && matchesHandoffIntent(lastInbound.text)) {
-    await acknowledgeHandoff(conversation);
+    await acknowledgeHandoff(conversation, opciones.at);
     await applyHandoff(conversationId, organizationId, "cliente");
     return leido;
   }
@@ -292,6 +302,12 @@ export async function runAgentTurn(
     return leido;
   }
 
+  // El LLM puede tardar y cruzar las 06:00. Se revalida antes de ejecutar su
+  // acción para que el relevo horario sea una frontera real, no aproximada.
+  if (!conversation.isTest && !isNightBotActive(opciones.at ?? new Date())) {
+    return leido;
+  }
+
   let action: AgentActionType = result.data;
 
   // 015 — Agenda. Un fallo del motor degrada el turno (el agente responde sin
@@ -314,7 +330,7 @@ export async function runAgentTurn(
                 startUtc: action.startUtc,
                 confirmation: action.reply,
               });
-        await deliverReply(conversation, turn.text);
+        await deliverReply(conversation, turn.text, opciones.at);
         if (turn.ok) {
           publish(organizationId, {
             type: "conversation.updated",
@@ -340,7 +356,7 @@ export async function runAgentTurn(
         data: { conversation: { id: conversationId } },
       });
       if (action.reply) {
-        await deliverReply(conversation, action.reply);
+        await deliverReply(conversation, action.reply, opciones.at);
       }
       return leido;
     }
@@ -350,16 +366,18 @@ export async function runAgentTurn(
     case "none":
       return leido;
     case "reply":
-      await deliverReply(conversation, action.text);
+      await deliverReply(conversation, action.text, opciones.at);
       return leido;
     case "update_lead": {
       await appendLeadNote(organizationId, conversation.contactId, action.note);
-      if (action.reply) await deliverReply(conversation, action.reply);
+      if (action.reply) {
+        await deliverReply(conversation, action.reply, opciones.at);
+      }
       return leido;
     }
     case "handoff": {
       if (action.farewell) {
-        await deliverReply(conversation, action.farewell);
+        await deliverReply(conversation, action.farewell, opciones.at);
       }
       await applyHandoff(conversationId, organizationId, "modelo");
       return leido;
@@ -373,12 +391,15 @@ type Conversation = typeof schema.conversation.$inferSelect;
 /** Entrega la respuesta: envío real o persistencia sandbox (is_test). */
 async function deliverReply(
   conversation: Conversation,
-  text: string
+  text: string,
+  at?: Date
 ): Promise<void> {
   if (conversation.isTest) {
     await persistTestOutbound(conversation, text);
     return;
   }
+  // Última guarda contra un cruce de las 06:00 durante una acción previa.
+  if (!isNightBotActive(at ?? new Date())) return;
   try {
     await sendText({
       conversationId: conversation.id,
@@ -410,9 +431,12 @@ async function deliverReply(
  * se aplica IGUAL. Quien pidió una persona tiene que llegar a una aunque el
  * aviso no haya salido; dejarlo con la IA encendida sería peor que el silencio.
  */
-async function acknowledgeHandoff(conversation: Conversation): Promise<void> {
+async function acknowledgeHandoff(
+  conversation: Conversation,
+  at?: Date
+): Promise<void> {
   try {
-    await deliverReply(conversation, HANDOFF_BACKUP_ACK);
+    await deliverReply(conversation, HANDOFF_BACKUP_ACK, at);
   } catch (err) {
     console.error(
       `[agente] el acuse del traspaso no salió en ${conversation.id}; se traspasa igual:`,

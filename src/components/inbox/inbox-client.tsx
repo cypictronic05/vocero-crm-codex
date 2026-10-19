@@ -35,7 +35,13 @@ const PANEL_MEDIA_QUERY = "(min-width: 1280px)";
 const isWideEnoughForPanel = () =>
   typeof window !== "undefined" && window.matchMedia(PANEL_MEDIA_QUERY).matches;
 
-export function InboxClient({ channels }: { channels: readonly Channel[] }) {
+export function InboxClient({
+  channels,
+  isOwner,
+}: {
+  channels: readonly Channel[];
+  isOwner: boolean;
+}) {
   const multiChannel = channels.length > 1;
   const [conversations, setConversations] = useState<ConversationDto[] | null>(
     null
@@ -92,6 +98,17 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   useEffect(() => {
     void refetchConversations();
   }, [refetchConversations]);
+
+  useEffect(() => {
+    if (
+      conversations &&
+      selectedId &&
+      !conversations.some((conversation) => conversation.id === selectedId)
+    ) {
+      setSelectedId(null);
+      setMessages([]);
+    }
+  }, [conversations, selectedId]);
 
   const select = useCallback(
     (id: string) => {
@@ -150,6 +167,10 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
     onConversationUpdated: () => {
       void refetchConversations();
       // El agente movió de etapa o cambió el handoff: refresca el panel en vivo.
+      setDetailRev((v) => v + 1);
+    },
+    onConversationAssignment: () => {
+      void refetchConversations();
       setDetailRev((v) => v + 1);
     },
     onReconnect: () => {
@@ -391,8 +412,10 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
           <div className="h-full w-[320px] max-xl:w-[min(320px,88vw)]">
             <ContactPanel
               conversation={selected}
+              isOwner={isOwner}
               refreshKey={detailRev}
               onPatchConversation={patchConversation}
+              onAssignmentChanged={() => void refetchConversations()}
               onClose={() => togglePanel(false)}
             />
           </div>

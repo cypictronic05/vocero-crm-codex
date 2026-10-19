@@ -156,4 +156,6 @@ Igual que antes de que existiera el despacho:
 2. `POST /api/bot/messages` con `conversationId` y `text`.
 
 Un 409 `ai_paused` al contestar significa que un humano tomó la conversación
-mientras pensabas: no insistas.
+mientras pensabas: no insistas. Un 409 `outside_bot_shift` significa que terminó
+el turno nocturno `22:00–06:00` en `America/Bogota`: el mensaje permanece en la
+bandeja para el equipo humano y el cerebro no debe reintentar esa respuesta.

@@ -1,6 +1,7 @@
 import { count, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
+import { DEFAULT_WEEKLY_SCHEDULE } from "@/lib/team";
 
 /** Etapas sembradas del pipeline (US2). */
 const SEED_STAGES: { name: string; kind: "open" | "won" | "lost" }[] = [
@@ -36,11 +37,25 @@ export async function onUserCreated(userId: string, userName: string) {
       name: userName ? `Negocio de ${userName}` : "Mi negocio",
       slug: "principal",
     });
+    const memberId = newId("member");
     await tx.insert(schema.member).values({
-      id: newId("member"),
+      id: memberId,
       organizationId: orgId,
       userId,
       role: "owner",
+    });
+    await tx.insert(schema.teamAuditEvent).values({
+      id: newId("teamAuditEvent"),
+      organizationId: orgId,
+      actorUserId: userId,
+      targetMemberId: memberId,
+      action: "member_created",
+      before: null,
+      after: {
+        role: "owner",
+        status: "enabled",
+        weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
+      },
     });
     await tx.insert(schema.pipelineStage).values(
       SEED_STAGES.map((s, i) => ({
@@ -67,10 +82,11 @@ export async function resolveActiveOrganizationId(
 
 export async function resolveMembership(
   userId: string
-): Promise<{ organizationId: string; role: string } | null> {
+): Promise<{ id: string; organizationId: string; role: string } | null> {
   const db = getDb();
   const rows = await db
     .select({
+      id: schema.member.id,
       organizationId: schema.member.organizationId,
       role: schema.member.role,
     })

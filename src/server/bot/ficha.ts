@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, exists } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 
@@ -88,6 +88,8 @@ export async function upsertFicha(input: {
   organizationId: string;
   contactId: string;
   ficha: FichaInput;
+  /** Presente solo en la UI humana: exige que el contacto siga asignado. */
+  allowedMemberId?: string;
 }): Promise<{ ficha: Ficha } | null> {
   const db = getDb();
   const patch = normalizeFicha(input.ficha);
@@ -99,7 +101,25 @@ export async function upsertFicha(input: {
   const alcance = scoped(
     schema.contact.organizationId,
     input.organizationId,
-    eq(schema.contact.id, input.contactId)
+    eq(schema.contact.id, input.contactId),
+    input.allowedMemberId
+      ? exists(
+          db
+            .select({ id: schema.conversation.id })
+            .from(schema.conversation)
+            .where(
+              and(
+                eq(schema.conversation.organizationId, input.organizationId),
+                eq(schema.conversation.contactId, schema.contact.id),
+                eq(schema.conversation.isTest, false),
+                eq(
+                  schema.conversation.assignedMemberId,
+                  input.allowedMemberId
+                )
+              )
+            )
+        )
+      : undefined
   );
 
   const rows = await db
@@ -111,10 +131,13 @@ export async function upsertFicha(input: {
 
   const merged = mergeFicha(rows[0].ficha as Ficha | null, patch);
 
-  await db
+  const updated = await db
     .update(schema.contact)
     .set({ ficha: merged, updatedAt: new Date() })
-    .where(alcance);
+    .where(alcance)
+    .returning({ id: schema.contact.id });
+
+  if (!updated[0]) return null;
 
   return { ficha: merged };
 }

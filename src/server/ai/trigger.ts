@@ -2,6 +2,7 @@ import { scheduleAgentTurn } from "@/server/ai/pipeline";
 import { isAiConfiguredFor } from "@/lib/ai/provider";
 import { despachoActivo } from "@/server/brains/config";
 import { despacharAlCerebro } from "@/server/dispatch/encolar";
+import { isNightBotActive } from "@/lib/night-bot";
 
 /**
  * Punto de enganche del turno tras la ingesta de un mensaje entrante REAL (las
@@ -23,8 +24,12 @@ import { despacharAlCerebro } from "@/server/dispatch/encolar";
 export async function maybeRunAgentTurn(
   conversationId: string,
   organizationId: string,
-  messageId: string
+  messageId: string,
+  at: Date = new Date()
 ): Promise<void> {
+  // 028 — De día la conversación ya fue asignada a una persona por la fase 2.
+  // El mensaje queda en PostgreSQL; no se crea trabajo para ningún bot.
+  if (!isNightBotActive(at)) return;
   if (despachoActivo()) {
     await despacharAlCerebro(conversationId, organizationId, messageId);
     return;

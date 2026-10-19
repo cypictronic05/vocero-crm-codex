@@ -4,6 +4,8 @@ import { scoped } from "@/lib/db/tenant";
 import type { DateRange } from "@/lib/time/calendar";
 import { addDaysISO, partsInTz, zonedWallClockToUtc } from "@/lib/time/slots";
 import { getSettings, type CalendarSettings } from "@/server/agenda/settings";
+import type { SessionContext } from "@/lib/auth/session";
+import { bookingScope } from "@/server/assignments/access";
 
 /** 015 — Listado de citas para la UI, con la hora en la zona del negocio. */
 
@@ -65,12 +67,19 @@ function baseQuery() {
 
 /** Las últimas 200 citas: el listado de siempre, para quien no pide rango. */
 export async function listBookings(
-  organizationId: string,
+  session: SessionContext,
   settings?: CalendarSettings
 ): Promise<BookingListItem[]> {
-  const resolved = settings ?? (await getSettings(organizationId));
+  const resolved = settings ?? (await getSettings(session.organizationId));
+  const access = bookingScope(session);
   const rows = await baseQuery()
-    .where(scoped(schema.booking.organizationId, organizationId))
+    .where(
+      scoped(
+        schema.booking.organizationId,
+        session.organizationId,
+        ...(access ? [access] : [])
+      )
+    )
     .orderBy(desc(schema.booking.scheduledAt))
     .limit(LIST_LIMIT);
   return rows.map((r) => toListItem(r, resolved.timezone));
@@ -84,11 +93,12 @@ export async function listBookings(
  * después de las 18:00 en México caería en la columna del día siguiente).
  */
 export async function listBookingsInRange(
-  organizationId: string,
+  session: SessionContext,
   range: DateRange,
   settings?: CalendarSettings
 ): Promise<{ bookings: BookingListItem[]; truncated: boolean }> {
-  const resolved = settings ?? (await getSettings(organizationId));
+  const resolved = settings ?? (await getSettings(session.organizationId));
+  const access = bookingScope(session);
   const tz = resolved.timezone;
   // Fechas ya validadas (`parseRangeQuery`): la conversión no puede fallar.
   const start = zonedWallClockToUtc(range.from, "00:00", tz)!;
@@ -98,9 +108,10 @@ export async function listBookingsInRange(
     .where(
       scoped(
         schema.booking.organizationId,
-        organizationId,
+        session.organizationId,
         gte(schema.booking.scheduledAt, new Date(start.getTime() - LOOKBACK_MS)),
-        lt(schema.booking.scheduledAt, end)
+        lt(schema.booking.scheduledAt, end),
+        ...(access ? [access] : [])
       )
     )
     .orderBy(asc(schema.booking.scheduledAt))

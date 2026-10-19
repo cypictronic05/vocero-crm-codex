@@ -19,6 +19,7 @@ import {
   tomarPendientes,
   type FilaDespacho,
 } from "@/server/dispatch/outbox";
+import { isNightBotActive } from "@/lib/night-bot";
 
 /**
  * 021 — El worker del despachador.
@@ -185,6 +186,12 @@ async function procesar(fila: FilaDespacho): Promise<void> {
   }
   if (!conv.aiEnabled || conv.handoffAt || conv.isTest) {
     await descartarDespacho(fila, "la IA se pausó antes de despachar");
+    return;
+  }
+  // 028 — La fila pudo vencer, reintentarse o sobrevivir un reinicio después
+  // de las 06:00. No es una caída del cerebro: queda para atención humana.
+  if (!isNightBotActive()) {
+    await descartarDespacho(fila, "terminó el turno nocturno");
     return;
   }
 

@@ -146,7 +146,7 @@ Con `BRAIN_DISPATCH_URL` y `BOT_API_KEY`, el paso 3 no piensa: `ai/trigger.ts` e
 
 ## Contratos públicos
 
-**`/api/bot/*`** — header `X-API-Key` igual a `BOT_API_KEY` (mínimo 16 caracteres; sin ella todo responde 401). 1200 llamadas por minuto autenticadas; 30 fallos por minuto por IP y luego 429. Los 409 vienen tipados: `ai_paused`, `window_closed`, `sandbox_violation`. Respeta `conversation.ai_enabled` y `handoff_at` igual que el agente incluido.
+**`/api/bot/*`** — header `X-API-Key` igual a `BOT_API_KEY` (mínimo 16 caracteres; sin ella todo responde 401). 1200 llamadas por minuto autenticadas; 30 fallos por minuto por IP y luego 429. Los 409 vienen tipados: `ai_paused`, `outside_bot_shift`, `window_closed`, `sandbox_violation`. Respeta `conversation.ai_enabled`, `handoff_at` y el turno nocturno `22:00–06:00` en `America/Bogota` igual que el agente incluido.
 
 | Endpoint | Para qué |
 |---|---|

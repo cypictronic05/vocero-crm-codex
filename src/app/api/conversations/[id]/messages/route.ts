@@ -3,6 +3,14 @@ import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getConversation, listMessages } from "@/server/inbox/queries";
 import { serializeMessage } from "@/server/inbox/ingest";
 import { SendError, sendStructured, sendText } from "@/server/inbox/send";
+import {
+  operatorSendDenied,
+  operatorSendErrorResponse,
+} from "@/server/team/http";
+import {
+  ConversationAccessError,
+  withConversationSendLock,
+} from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +18,14 @@ type Params = { params: Promise<{ id: string }> };
 
 export const GET = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
-  const row = await getConversation(session.organizationId, id);
+  const row = await getConversation(session, id);
   if (!row) return apiError(404, "not_found", "Conversación no encontrada");
 
   const url = new URL(req.url);
   const sinceParam = url.searchParams.get("since");
   const since = sinceParam ? new Date(sinceParam) : undefined;
   const messages = await listMessages(
-    session.organizationId,
+    session,
     id,
     since && !Number.isNaN(since.getTime()) ? since : undefined
   );
@@ -67,34 +75,42 @@ const SEND_ERROR_STATUS: Record<SendError["code"], number> = {
 };
 
 export const POST = withAuth(async (session, req: Request, ctx: Params) => {
+  const denied = await operatorSendDenied(session);
+  if (denied) return denied;
   const { id } = await ctx.params;
   const body = await parseBody(req, sendSchema);
   if (!body.ok) return body.response;
 
   try {
     const data = body.data;
-    const result =
+    const result = await withConversationSendLock(session, id, () =>
       "text" in data
-        ? await sendText({
+        ? sendText({
             conversationId: id,
             organizationId: session.organizationId,
             text: data.text,
           })
         : data.type === "location"
-          ? await sendStructured({
+          ? sendStructured({
               conversationId: id,
               organizationId: session.organizationId,
               kind: "location",
               location: data.location,
             })
-          : await sendStructured({
+          : sendStructured({
               conversationId: id,
               organizationId: session.organizationId,
               kind: "contacts",
               contacts: data.contacts,
-            });
+            })
+    );
     return Response.json({ messageId: result.messageId });
   } catch (err) {
+    const availabilityDenied = operatorSendErrorResponse(err);
+    if (availabilityDenied) return availabilityDenied;
+    if (err instanceof ConversationAccessError) {
+      return apiError(404, "not_found", err.message);
+    }
     if (err instanceof SendError) {
       return apiError(SEND_ERROR_STATUS[err.code], err.code, err.message);
     }

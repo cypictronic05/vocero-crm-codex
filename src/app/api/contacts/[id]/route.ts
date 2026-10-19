@@ -14,6 +14,10 @@ import {
   anuncioDelContacto,
   repararImagenSiFalta,
 } from "@/server/attribution/store";
+import {
+  canAccessContact,
+  contactScope,
+} from "@/server/assignments/access";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +25,13 @@ type Params = { params: Promise<{ id: string }> };
 
 export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
   const { id } = await ctx.params;
-  const contact = await getContactById(session.organizationId, id);
+  if (!(await canAccessContact(session, id))) {
+    return apiError(404, "not_found", "Contacto no encontrado");
+  }
+  const contact = await getContactById(session, id);
   if (!contact) return apiError(404, "not_found", "Contacto no encontrado");
   const [stageRow, anuncio] = await Promise.all([
-    getContactStage(session.organizationId, id),
+    getContactStage(session, id),
     anuncioDelContacto(session.organizationId, id),
   ]);
   // 018 — Sin imagen todavía: se reintenta en segundo plano y llega por SSE.
@@ -62,6 +69,9 @@ const patchSchema = z.object({
 
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
+  if (!(await canAccessContact(session, id))) {
+    return apiError(404, "not_found", "Contacto no encontrado");
+  }
   const body = await parseBody(req, patchSchema);
   if (!body.ok) return body.response;
 
@@ -73,6 +83,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
       organizationId: session.organizationId,
       contactId: id,
       ficha: body.data.ficha,
+      allowedMemberId: session.role === "owner" ? undefined : session.memberId,
     });
     if (!res) return apiError(404, "not_found", "Contacto no encontrado");
   }
@@ -96,6 +107,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
       scoped(
         schema.contact.organizationId,
         session.organizationId,
+        contactScope(session),
         eq(schema.contact.id, id)
       )
     )
