@@ -21,8 +21,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # de build: la app enseña solo la versión, o el SOURCE_COMMIT que encuentre en
 # el entorno al arrancar, marcado como no verificado.
 ARG SOURCE_COMMIT=""
+ARG GIT_SHA=""
 ENV SOURCE_COMMIT=$SOURCE_COMMIT
-RUN pnpm build
+# EasyPanel inyecta GIT_SHA como build arg; Compose puede seguir pasando
+# SOURCE_COMMIT. Ninguno es secreto y el primero disponible queda congelado en
+# el build para que /api/health identifique el código realmente desplegado.
+RUN SOURCE_COMMIT="${SOURCE_COMMIT:-$GIT_SHA}" pnpm build
 # migrate.mjs autocontenido (drizzle-orm + postgres bundleados)
 RUN pnpm exec esbuild scripts/migrate.mjs --bundle --platform=node \
     --format=esm --outfile=migrate.bundle.mjs \

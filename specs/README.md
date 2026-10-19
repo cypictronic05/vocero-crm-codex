@@ -22,6 +22,8 @@ producto** — y saberlo antes de leerla ahorra una confusión.
 | `026-disponibilidad-equipo` | Ciclo completo | spec, plan, data-model, tasks (estado administrativo, turnos semanales en America/Bogota, auditoría y bloqueo de envío humano) |
 | `027-asignacion-conversaciones` | Ciclo completo | spec, plan, data-model, tasks (asignación transaccional, cola, relevo, autorización e historial) |
 | `028-bot-nocturno` | Ciclo completo | spec, plan, tasks (bot de 22:00 a 06:00 en America/Bogota; agente incluido y cerebro externo) |
+| `029-proxy-webhook-local` | Ligero | spec (proxy loopback de allowlist estricta para Cloudflare Tunnel; solo webhook WhatsApp) |
+| `030-preparacion-vps-nexora` | Ligero | spec (aplicación independiente para EasyPanel, PostgreSQL externo y recuperación tras reinicios) |
 
 Los tres carriles —ciclo completo, ligero y exento— están definidos en el
 [Principio VI de la constitución](../.specify/memory/constitution.md). El

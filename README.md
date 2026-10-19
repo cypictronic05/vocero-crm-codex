@@ -264,6 +264,14 @@ tipo «Docker Image» con la imagen de la versión, le monta el volumen de
 `/data`, genera los secretos y verifica el healthcheck. La misma guía trae la
 variante que construye desde el repositorio.
 
+### EasyPanel — aplicación independiente con PostgreSQL existente
+
+Para desplegar este fork desde GitHub como un servicio **App**, usando una
+base PostgreSQL ya administrada por EasyPanel, sigue
+[`docs/deploy-easypanel-nexora.md`](docs/deploy-easypanel-nexora.md). La app se
+construye con el `Dockerfile` raíz, recibe `DATABASE_URL` en runtime, escucha
+solo en el puerto interno 3000 y persiste adjuntos en `/data`.
+
 ### Ruta B — docker compose
 
 ```bash
@@ -580,6 +588,13 @@ clientes reales.
 5. **Datos del cliente en su servidor**: cada negocio aloja su instancia; el
    token va cifrado en reposo y los webhooks se validan por URL secreta y
    firma opcional.
+
+### Webhook en desarrollo local
+
+Para recibir el webhook mediante Cloudflare Tunnel sin exponer login, bandeja
+ni APIs administrativas, usa el proxy de allowlist estricta descrito en
+[`docs/cloudflare-tunnel-webhook.md`](docs/cloudflare-tunnel-webhook.md). El
+túnel apunta al proxy en `127.0.0.1:8787`, nunca directamente a Next.js.
 
 ## FAQ de errores comunes
 

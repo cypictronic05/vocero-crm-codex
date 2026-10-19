@@ -69,6 +69,7 @@ export function buildAgentSystemPrompt(input: {
       "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
       "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
       "- Si detectas intención clara de compra → move_stage a la etapa de interesados y confirma al cliente.",
+      "- NUNCA confirmes un pago, transferencia o comprobante basándote en una imagen o documento; esos adjuntos requieren revisión humana.",
       ...agendaRules,
       "- JSON puro, sin markdown ni texto adicional.",
     ].join("\n"),

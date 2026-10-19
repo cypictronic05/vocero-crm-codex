@@ -1,0 +1,7 @@
+# Override exclusivo para probar webhooks desde el host.
+# Publica Next.js solo en loopback: no pasa por Caddy y no queda accesible
+# desde la red local ni desde internet.
+services:
+  app:
+    ports:
+      - "127.0.0.1:3001:3000"

@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { isNightBotActive } from "@/lib/night-bot";
+import {
+  currentNightWindowStart,
+  isNightBotActive,
+} from "@/lib/night-bot";
 
 describe("bot nocturno de Nexora en America/Bogota", () => {
   it("incluye las 22:00 y excluye las 06:00", () => {
@@ -14,6 +17,20 @@ describe("bot nocturno de Nexora en America/Bogota", () => {
     // En UTC ya es lunes, pero en Bogotá siguen siendo las 23:30 del domingo.
     expect(isNightBotActive(new Date("2026-10-19T04:30:00.000Z"))).toBe(true);
     expect(isNightBotActive(new Date("2026-10-19T17:00:00.000Z"))).toBe(false);
+  });
+
+  it("calcula el comienzo de la ventana que debe recuperarse tras reiniciar", () => {
+    expect(
+      currentNightWindowStart(
+        new Date("2026-10-19T04:30:45.123Z")
+      )?.toISOString()
+    ).toBe("2026-10-19T03:00:00.000Z");
+    expect(
+      currentNightWindowStart(
+        new Date("2026-10-20T09:15:00.000Z")
+      )?.toISOString()
+    ).toBe("2026-10-20T03:00:00.000Z");
+    expect(currentNightWindowStart(new Date("2026-10-19T17:00:00.000Z"))).toBeNull();
   });
 });
 
@@ -29,6 +46,9 @@ describe("guardas del turno nocturno", () => {
     expect(pipeline).toContain("!conversation.isTest");
     expect(pipeline.match(/isNightBotActive/g)?.length).toBeGreaterThanOrEqual(3);
     expect(worker).toContain('descartarDespacho(fila, "terminó el turno nocturno")');
+    expect(readFileSync("src/instrumentation-node.ts", "utf8")).toContain(
+      "resumePendingNightTurns"
+    );
   });
 
   it("rechaza el envío tardío del cerebro antes del transporte", () => {

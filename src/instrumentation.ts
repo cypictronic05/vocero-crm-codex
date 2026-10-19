@@ -10,6 +10,7 @@ export async function register(): Promise<void> {
       cleanupOrphanRuns,
       resumeDispatch,
       resumeAssignments,
+      resumeNightAgent,
     } = await import(
       "./instrumentation-node"
     );
@@ -17,5 +18,6 @@ export async function register(): Promise<void> {
     await cleanupOrphanRuns();
     resumeDispatch();
     resumeAssignments();
+    await resumeNightAgent();
   }
 }

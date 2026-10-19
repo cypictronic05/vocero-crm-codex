@@ -4,6 +4,7 @@ import { mediaDirStatus } from "@/server/media-dir";
 import { leerConfigDespacho } from "@/server/brains/config";
 import { iniciarWorker, tanda } from "@/server/dispatch/worker";
 import { startAssignmentWorker } from "@/server/assignments/worker";
+import { resumePendingNightTurns } from "@/server/ai/recovery";
 
 /**
  * 008 — Aviso al arranque si MEDIA_DIR no es escribible. Sin esto, el primer
@@ -86,4 +87,8 @@ export function resumeDispatch(): void {
 
 export function resumeAssignments(): void {
   startAssignmentWorker();
+}
+
+export async function resumeNightAgent(): Promise<void> {
+  await resumePendingNightTurns();
 }

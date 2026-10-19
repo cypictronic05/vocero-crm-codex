@@ -27,6 +27,10 @@ import { agendaEnabled } from "@/server/agenda/flag";
 import { bookSlot, offerSlots } from "@/server/agenda/agent";
 import { getOffers, mapaDeHuecosParaModelo } from "@/server/agenda/offers";
 import { isNightBotActive } from "@/lib/night-bot";
+import {
+  MEDIA_REVIEW_ACK,
+  requiresHumanMediaReview,
+} from "@/server/ai/media-safety";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -226,6 +230,26 @@ export async function runAgentTurn(
     return leido;
   }
 
+  // Una imagen/documento puede ser un comprobante. El agente no interpreta
+  // binarios y jamás puede convertir una foto en confirmación de pago.
+  const pendientesDeRevision = vigentes.length ? vigentes : [lastInbound];
+  if (
+    !conversation.isTest &&
+    requiresHumanMediaReview(pendientesDeRevision)
+  ) {
+    try {
+      await deliverReply(conversation, MEDIA_REVIEW_ACK, opciones.at);
+    } catch {
+      // La revisión humana es el control importante: se aplica incluso si el
+      // acuse no pudo salir por un fallo transitorio de Meta.
+      console.error(
+        "[agente] el acuse de revisión de adjunto no salió; se traspasa igual"
+      );
+    }
+    await applyHandoff(conversationId, organizationId, "modelo");
+    return leido;
+  }
+
   // Patrón de respaldo ANTES del LLM (FR-022). Avisa y traspasa, en el mismo
   // orden que el camino del modelo (`farewell` y luego handoff): callar ante
   // quien pide una persona se lee como que el bot dejó de contestar.
@@ -297,7 +321,9 @@ export async function runAgentTurn(
   if (!result.ok) {
     if (result.error === "not_configured") return leido;
     // Fallo persistente del proveedor o salida imposible → escalar (FR-022).
-    console.error(`[agente] fallo del proveedor (raw): ${result.detail}`);
+    // El detalle puede contener texto del proveedor o de la conversación; no
+    // se vuelca en producción. El estado accionable ya queda en Ajustes → IA.
+    console.error("[agente] fallo del proveedor; se traspasa a una persona");
     await applyHandoff(conversationId, organizationId, "error");
     return leido;
   }

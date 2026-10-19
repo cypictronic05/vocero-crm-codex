@@ -1,0 +1,66 @@
+name: nexora-crm
+
+# Referencia de producción para una aplicación independiente. En EasyPanel se
+# recomienda crear un servicio App desde GitHub usando el Dockerfile raíz; este
+# Compose sirve para auditar la misma topología: no crea PostgreSQL ni publica
+# puertos del host.
+services:
+  app:
+    image: nexora-crm:${GIT_SHA:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: production
+      APP_BASE_URL: ${APP_BASE_URL:?Define APP_BASE_URL}
+      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL de EasyPanel}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Define BETTER_AUTH_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Define ENCRYPTION_KEY}
+      META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:?Define META_WEBHOOK_VERIFY_TOKEN}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v25.0}
+      OPENROUTER_API_TOKEN: ${OPENROUTER_API_TOKEN:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_JUDGE_MODEL: ${OPENROUTER_JUDGE_MODEL:-}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-}
+      AGENT_COALESCE_MS: ${AGENT_COALESCE_MS:-6000}
+      CHANNELS: ${CHANNELS:-}
+      AGENDA: ${AGENDA:-}
+      ATRIBUCION: ${ATRIBUCION:-}
+      BOT_API_KEY: ${BOT_API_KEY:-}
+      BRAIN_HEALTH_URL: ${BRAIN_HEALTH_URL:-}
+      BRAIN_DISPATCH_URL: ${BRAIN_DISPATCH_URL:-}
+    volumes:
+      - nexora_media:/data
+    expose:
+      - "3000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+volumes:
+  nexora_media:

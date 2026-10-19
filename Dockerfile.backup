@@ -1,0 +1,17 @@
+FROM postgres:16-alpine
+
+RUN apk add --no-cache age coreutils tzdata
+RUN mkdir -p /backups /opt/vocero \
+    && chown -R postgres:postgres /backups /opt/vocero
+
+COPY --chown=postgres:postgres scripts/vps/backup.sh /opt/vocero/backup.sh
+COPY --chown=postgres:postgres scripts/vps/backup-loop.sh /opt/vocero/backup-loop.sh
+COPY --chown=postgres:postgres scripts/vps/restore.sh /opt/vocero/restore.sh
+COPY --chown=postgres:postgres scripts/vps/backup-restore-selftest.sh /opt/vocero/backup-restore-selftest.sh
+RUN chmod 755 /opt/vocero/*.sh
+# Prueba real durante el build: Postgres temporal → dump → cifrado age →
+# restauración paralela → consulta y archivo recuperado. No toca volúmenes.
+RUN su postgres -c /opt/vocero/backup-restore-selftest.sh
+
+USER postgres
+ENTRYPOINT ["/opt/vocero/backup-loop.sh"]
