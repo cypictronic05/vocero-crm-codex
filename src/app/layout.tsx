@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { Archivo, IBM_Plex_Mono, Instrument_Serif } from "next/font/google";
 import { accentCssVariables, DEFAULT_BRANDING } from "@/lib/branding";
-import { faviconHref } from "@/lib/favicon";
+import {
+  PRODUCT_DESCRIPTION,
+  PRODUCT_FAVICON,
+  PRODUCT_NAME,
+} from "@/lib/product-brand";
 import { normalizeThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { getBranding } from "@/server/branding";
 import "./globals.css";
@@ -30,14 +34,12 @@ const plexMono = IBM_Plex_Mono({
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const branding = await getBranding().catch(() => DEFAULT_BRANDING);
+export function generateMetadata(): Metadata {
   return {
-    title: `${branding.name} — CRM de WhatsApp`,
-    description: "CRM de WhatsApp con agente de IA y Laboratorio de auto-evaluación",
-    // El `?v=` cambia con la marca: los navegadores guardan el favicon con una
-    // insistencia notable y, sin eso, el logo nuevo tarda días en aparecer.
-    icons: { icon: faviconHref(branding) },
+    title: PRODUCT_NAME,
+    description: PRODUCT_DESCRIPTION,
+    applicationName: PRODUCT_NAME,
+    icons: { icon: PRODUCT_FAVICON },
   };
 }
 

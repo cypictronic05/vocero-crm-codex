@@ -267,6 +267,18 @@
     mask-image: radial-gradient(ellipse 90% 80% at 50% 20%, #000 30%, transparent 75%);
   }
 
+  /* Portada de CRM - COCUYO: cuadrícula fija y sutil, independiente del
+     acento white-label de la organización y legible también si la persona
+     dejó el tema oscuro activo en una sesión anterior. */
+  .auth-cocuyo-grid {
+    background-image:
+      linear-gradient(to right, rgba(18, 101, 216, 0.08) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(18, 101, 216, 0.08) 1px, transparent 1px);
+    background-size: 72px 72px;
+    -webkit-mask-image: radial-gradient(ellipse 92% 84% at 50% 38%, #000 35%, transparent 82%);
+    mask-image: radial-gradient(ellipse 92% 84% at 50% 38%, #000 35%, transparent 82%);
+  }
+
   /* Resplandores suaves que flotan detrás del formulario */
   .brand-glow {
     position: absolute;

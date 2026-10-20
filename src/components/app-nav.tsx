@@ -11,7 +11,8 @@ import { appNavGroups, isNavActive, SETTINGS_ITEM, type NavItem } from "@/lib/na
 import { signOut } from "@/lib/auth/client";
 import { useEvents } from "@/components/use-events";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { BrandLogo } from "@/components/brand-mark";
+import { BrandTile } from "@/components/brand-mark";
+import { CocuyoLogo } from "@/components/cocuyo-brand";
 import {
   BUILD_COMMIT,
   UNVERIFIED_COMMIT_NOTE,
@@ -135,7 +136,8 @@ export function AppNav({
         open ? "visible translate-x-0 shadow-pop" : "invisible -translate-x-full"
       )}
     >
-      {/* Marca: el logo de Vocero o, white-label, la inicial y el nombre */}
+      {/* Producto y organización son identidades distintas: Cocuyo contiene
+          la instancia y Nexora conserva su marca empresarial. */}
       <div className="mb-5 flex items-start gap-1.5 px-2 pt-0.5">
         {/* En móvil el cajón necesita su propio cierre: el velo no siempre es
             alcanzable con el pulgar. */}
@@ -147,8 +149,13 @@ export function AppNav({
           <X className="h-[18px] w-[18px]" strokeWidth={1.8} />
         </button>
         <div className="min-w-0">
-          <BrandLogo branding={branding} />
-          <span className="kicker mt-2 block">CRM · WhatsApp</span>
+          <CocuyoLogo compact inverted />
+          <div className="mt-2.5 flex min-w-0 items-center gap-2 border-t border-border pt-2.5">
+            <BrandTile branding={branding} className="h-6 w-6 rounded-[7px] text-[12px]" />
+            <span className="min-w-0 truncate text-[12px] font-semibold text-text-2">
+              {branding.name}
+            </span>
+          </div>
         </div>
       </div>
 

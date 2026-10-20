@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
@@ -37,25 +36,27 @@ export default function LoginPage() {
   }
 
   return (
-    <Card className="shadow-md">
-      <CardHeader>
-        <CardTitle>Iniciar sesión</CardTitle>
+    <Card className="rounded-[22px] border-[#d8e3f1] bg-white text-[#101d3c] shadow-[0_24px_65px_-34px_rgba(16,29,60,0.36)] sm:rounded-[28px]">
+      <CardHeader className="px-6 pb-5 pt-6 sm:px-12 sm:pb-8 sm:pt-10">
+        <CardTitle className="text-[20px] sm:text-[26px]">Iniciar sesión</CardTitle>
       </CardHeader>
-      <CardContent>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Correo</Label>
+      <CardContent className="px-6 pb-6 pt-0 sm:px-12 sm:pb-11">
+        <form onSubmit={onSubmit} className="space-y-5 sm:space-y-8">
+          <div className="space-y-2 sm:space-y-3">
+            <Label htmlFor="email" className="text-[15px] text-[#263755] sm:text-[19px]">Correo</Label>
             <Input
               id="email"
               type="email"
               autoComplete="email"
               required
+              autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              className="h-12 rounded-[14px] border-[#cfddec] bg-white px-4 text-[#101d3c] focus-visible:border-[#1265d8] focus-visible:ring-[#d7e7ff] sm:h-16 sm:rounded-[17px]"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">Contraseña</Label>
+          <div className="space-y-2 sm:space-y-3">
+            <Label htmlFor="password" className="text-[15px] text-[#263755] sm:text-[19px]">Contraseña</Label>
             <Input
               id="password"
               type="password"
@@ -63,18 +64,21 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className="h-12 rounded-[14px] border-[#cfddec] bg-white px-4 text-[#101d3c] focus-visible:border-[#1265d8] focus-visible:ring-[#d7e7ff] sm:h-16 sm:rounded-[17px]"
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={loading}>
+          {error && (
+            <p role="alert" className="text-sm text-[#b42318]">
+              {error}
+            </p>
+          )}
+          <Button
+            type="submit"
+            className="h-12 w-full rounded-full bg-[#1265d8] text-[15px] text-white shadow-[0_10px_22px_-12px_rgba(18,101,216,0.86)] hover:bg-[#0d54b8] focus-visible:ring-[#1265d8] focus-visible:ring-offset-white sm:h-16 sm:text-[17px]"
+            disabled={loading}
+          >
             {loading ? "Entrando…" : "Entrar"}
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
-            ¿Primera vez aquí?{" "}
-            <Link href="/register" className="text-primary hover:underline">
-              Crear la cuenta inicial
-            </Link>
-          </p>
         </form>
       </CardContent>
     </Card>
