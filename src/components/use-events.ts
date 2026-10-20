@@ -11,6 +11,11 @@ export type EventHandlers = {
     /** Motivo, presente solo cuando status = "failed". */
     error?: string | null;
   }) => void;
+  onMessageMedia?: (data: {
+    conversationId: string;
+    messageId: string;
+    media: unknown;
+  }) => void;
   onConversationUpdated?: (data: { conversation: unknown }) => void;
   onConversationAssignment?: (data: {
     conversationId: string;
@@ -57,6 +62,9 @@ export function useEvents(handlers: EventHandlers): void {
     listen("message.new", (d) => handlersRef.current.onMessageNew?.(d as never));
     listen("message.status", (d) =>
       handlersRef.current.onMessageStatus?.(d as never)
+    );
+    listen("message.media", (d) =>
+      handlersRef.current.onMessageMedia?.(d as never)
     );
     listen("conversation.updated", (d) =>
       handlersRef.current.onConversationUpdated?.(d as never)

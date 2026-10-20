@@ -60,6 +60,8 @@ export type MessageMediaDto = {
   fileSize: number | null;
   caption: string | null;
   fetchStatus: "available" | "pending" | "failed";
+  /** Motivo seguro para el operador; nunca contiene credenciales. */
+  fetchError: string | null;
   /** location {latitude, longitude, name?, address?} / contacts (subset). */
   payload: unknown;
 };

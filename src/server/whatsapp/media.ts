@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { graphRequest, MetaApiError } from "@/lib/meta/client";
@@ -9,6 +9,8 @@ import {
   type Credentials,
 } from "@/server/whatsapp/credentials";
 import { isForbiddenUploadMime } from "@/server/whatsapp/media-headers";
+import { publish } from "@/server/events/bus";
+import type { MessageMediaDto } from "@/lib/types";
 
 /**
  * 008 — Única frontera de media con la Graph API (constitución II: todo el
@@ -153,6 +155,63 @@ export class MediaFetchError extends Error {
   }
 }
 
+export function serializeMediaAsset(
+  media: typeof schema.mediaAsset.$inferSelect
+): MessageMediaDto {
+  return {
+    assetId: media.id,
+    kind: media.kind,
+    mimeType: media.mimeType,
+    fileName: media.fileName,
+    fileSize: media.fileSize,
+    caption: media.caption,
+    fetchStatus: media.fetchStatus,
+    fetchError: media.fetchError,
+    payload: media.payload,
+  };
+}
+
+/** Avisa solo a la conversación/burbuja dueña del asset ya confirmado en BD. */
+async function publishMediaUpdate(
+  organizationId: string,
+  asset: typeof schema.mediaAsset.$inferSelect
+): Promise<void> {
+  try {
+    const rows = await getDb()
+      .select({ id: schema.message.id, conversationId: schema.message.conversationId })
+      .from(schema.message)
+      .where(
+        and(
+          eq(schema.message.organizationId, organizationId),
+          eq(schema.message.mediaAssetId, asset.id)
+        )
+      )
+      .limit(1);
+    const message = rows[0];
+    if (!message) return;
+    publish(organizationId, {
+      type: "message.media",
+      data: {
+        conversationId: message.conversationId,
+        messageId: message.id,
+        media: serializeMediaAsset(asset),
+      },
+    });
+  } catch (err) {
+    // El archivo ya quedó confirmado en BD: un fallo del canal en vivo no
+    // debe degradarlo a `failed`; el polling acotado hará el catch-up.
+    console.warn(
+      `[media] no se pudo publicar el estado del asset ${asset.id}:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+const downloads = new Map<
+  string,
+  Promise<typeof schema.mediaAsset.$inferSelect | null>
+>();
+
 /**
  * Descarga un media de Graph: GET {mediaId} → url efímera → GET con Bearer.
  * El token JAMÁS sale del servidor.
@@ -205,7 +264,7 @@ export async function downloadGraphMedia(
  * media. Nunca lanza hacia el webhook: el que llama decide qué hacer con el
  * resultado. Devuelve el asset actualizado o null si no se pudo.
  */
-export async function ensureAssetAvailable(
+async function ensureAssetAvailableOnce(
   organizationId: string,
   assetId: string
 ): Promise<typeof schema.mediaAsset.$inferSelect | null> {
@@ -221,7 +280,19 @@ export async function ensureAssetAvailable(
   if (!asset.waMediaId) return null; // location/contacts no tienen binario
 
   const creds = await getCredentialsByOrg(organizationId);
-  if (!creds) return null;
+  if (!creds) {
+    const failed = await db
+      .update(schema.mediaAsset)
+      .set({
+        fetchStatus: "failed",
+        fetchError: "WhatsApp no está conectado",
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.mediaAsset.id, assetId))
+      .returning();
+    if (failed[0]) await publishMediaUpdate(organizationId, failed[0]);
+    return null;
+  }
 
   try {
     const { data, mimeType, fileSize } = await downloadGraphMedia(
@@ -241,16 +312,76 @@ export async function ensureAssetAvailable(
       })
       .where(eq(schema.mediaAsset.id, assetId))
       .returning();
+    if (updated[0]) await publishMediaUpdate(organizationId, updated[0]);
     return updated[0] ?? null;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await db
+    const detail = err instanceof Error ? err.message : String(err);
+    // Un error de filesystem puede contener la ruta absoluta de /data; el
+    // operador necesita una acción clara, no detalles internos del servidor.
+    const message =
+      err instanceof MediaFetchError
+        ? err.message
+        : "No se pudo descargar o guardar el adjunto";
+    const failed = await db
       .update(schema.mediaAsset)
       .set({ fetchStatus: "failed", fetchError: message, updatedAt: new Date() })
-      .where(eq(schema.mediaAsset.id, assetId));
-    console.warn(`[media] descarga del asset ${assetId} falló: ${message}`);
+      .where(eq(schema.mediaAsset.id, assetId))
+      .returning();
+    if (failed[0]) await publishMediaUpdate(organizationId, failed[0]);
+    console.warn(`[media] descarga del asset ${assetId} falló: ${detail}`);
     return null;
   }
+}
+
+/**
+ * Deduplica descargas simultáneas (ingesta, polling y reintento manual pueden
+ * coincidir) y libera la llave al terminar para permitir un reintento real.
+ */
+export function ensureAssetAvailable(
+  organizationId: string,
+  assetId: string
+): Promise<typeof schema.mediaAsset.$inferSelect | null> {
+  const key = `${organizationId}:${assetId}`;
+  const current = downloads.get(key);
+  if (current) return current;
+  const run = ensureAssetAvailableOnce(organizationId, assetId).finally(() => {
+    downloads.delete(key);
+  });
+  downloads.set(key, run);
+  return run;
+}
+
+/** Reinicia explícitamente un asset fallido y notifica ambos estados. */
+export async function retryAssetDownload(
+  organizationId: string,
+  assetId: string
+): Promise<typeof schema.mediaAsset.$inferSelect | null> {
+  const pending = await getDb()
+    .update(schema.mediaAsset)
+    .set({ fetchStatus: "pending", fetchError: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.mediaAsset.organizationId, organizationId),
+        eq(schema.mediaAsset.id, assetId),
+        eq(schema.mediaAsset.fetchStatus, "failed")
+      )
+    )
+    .returning();
+  if (!pending[0]) return null;
+  await publishMediaUpdate(organizationId, pending[0]);
+  const result = await ensureAssetAvailable(organizationId, assetId);
+  if (result) return result;
+  const latest = await getDb()
+    .select()
+    .from(schema.mediaAsset)
+    .where(
+      and(
+        eq(schema.mediaAsset.organizationId, organizationId),
+        eq(schema.mediaAsset.id, assetId)
+      )
+    )
+    .limit(1);
+  return latest[0] ?? null;
 }
 
 /* ---------- Subida a Graph (salientes) ---------- */

@@ -13,7 +13,11 @@ export async function canReceiveSseEvent(
       event.data.toMemberId === session.memberId
     );
   }
-  if (event.type === "message.new" || event.type === "message.status") {
+  if (
+    event.type === "message.new" ||
+    event.type === "message.status" ||
+    event.type === "message.media"
+  ) {
     return canAccessConversation(session, event.data.conversationId);
   }
   if (event.type === "conversation.updated") {

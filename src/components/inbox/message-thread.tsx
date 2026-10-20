@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -9,6 +9,7 @@ import {
   FileText,
   MapPin,
   Paperclip,
+  RotateCcw,
   Smartphone,
   Sparkles,
   UserRound,
@@ -42,8 +43,16 @@ type ContactPayload = {
 };
 
 /** 008 — Previsualización del adjunto de un mensaje, por tipo. */
-function MediaBlock({ media }: { media: MessageMediaDto }) {
+function MediaBlock({
+  media,
+  onRetry,
+}: {
+  media: MessageMediaDto;
+  onRetry: (assetId: string) => Promise<string | null>;
+}) {
   const src = `/api/media/${media.assetId}`;
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   if (media.kind === "location") {
     const loc = (media.payload ?? {}) as LocationPayload;
@@ -108,12 +117,32 @@ function MediaBlock({ media }: { media: MessageMediaDto }) {
 
   if (media.fetchStatus !== "available") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-text-3">
-        <Paperclip className="h-3.5 w-3.5" strokeWidth={1.7} />
-        {mediaLabel(media.kind)}
-        {media.fetchStatus === "failed"
-          ? " — contenido no disponible"
-          : " — descargando…"}
+      <span className="flex flex-col gap-1.5 text-text-3">
+        <span className="inline-flex items-center gap-1.5">
+          <Paperclip className="h-3.5 w-3.5" strokeWidth={1.7} />
+          {mediaLabel(media.kind)}
+          {media.fetchStatus === "failed" ? " — descarga fallida" : " — descargando…"}
+        </span>
+        {media.fetchStatus === "failed" && (
+          <span className="flex flex-wrap items-center gap-2 text-[11.5px]">
+            <span>{retryError ?? media.fetchError ?? "El archivo no está disponible."}</span>
+            <button
+              type="button"
+              disabled={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                setRetryError(null);
+                const error = await onRetry(media.assetId);
+                setRetryError(error);
+                setRetrying(false);
+              }}
+              className="inline-flex items-center gap-1 rounded-md border border-border-strong bg-background px-2 py-1 font-medium text-foreground hover:bg-subtle disabled:opacity-60"
+            >
+              <RotateCcw className="h-3 w-3" strokeWidth={1.8} />
+              {retrying ? "Reintentando…" : "Reintentar"}
+            </button>
+          </span>
+        )}
       </span>
     );
   }
@@ -182,7 +211,13 @@ function bubbleTime(iso: string): string {
   });
 }
 
-export function MessageThread({ messages }: { messages: MessageDto[] }) {
+export function MessageThread({
+  messages,
+  onRetryMedia,
+}: {
+  messages: MessageDto[];
+  onRetryMedia: (assetId: string) => Promise<string | null>;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -236,7 +271,7 @@ export function MessageThread({ messages }: { messages: MessageDto[] }) {
               >
                 {m.media ? (
                   <span className="block">
-                    <MediaBlock media={m.media} />
+                    <MediaBlock media={m.media} onRetry={onRetryMedia} />
                     {m.media.caption && (
                       <span className="mt-1 block whitespace-pre-wrap break-words">
                         {m.media.caption}

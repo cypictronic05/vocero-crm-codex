@@ -13,6 +13,13 @@ import { ConversationList } from "./conversation-list";
 import { MessageThread } from "./message-thread";
 import { Composer } from "./composer";
 import { ContactPanel } from "./contact-panel";
+import {
+  mergeMediaUpdates,
+  pendingMediaIds,
+  type MediaUpdate,
+} from "./media-sync";
+
+const MEDIA_POLL_MS = 2_500;
 
 /**
  * Texto que ya salió del compositor pero cuyo POST todavía viaja. Existe solo
@@ -133,6 +140,31 @@ export function InboxClient({
     if (match) select(match.id);
   }, [contactParam, conversations, select]);
 
+  // Respaldo del SSE para reconexiones, proxies o varias réplicas. Solo pide
+  // los assets pendientes del hilo visible y se apaga al resolverse el último.
+  useEffect(() => {
+    const ids = pendingMediaIds(messages);
+    if (!selectedId || ids.length === 0) return;
+
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      const res = await fetch(
+        `/api/media/status?ids=${encodeURIComponent(ids.join(","))}`
+      ).catch(() => null);
+      if (!stopped && res?.ok) {
+        const data = (await res.json()) as { updates: MediaUpdate[] };
+        setMessages((prev) => mergeMediaUpdates(prev, data.updates));
+      }
+      if (!stopped) timer = setTimeout(poll, MEDIA_POLL_MS);
+    };
+    timer = setTimeout(poll, MEDIA_POLL_MS);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [messages, selectedId]);
+
   useEvents({
     onMessageNew: ({ conversationId, message }) => {
       if (selectedIdRef.current === conversationId) {
@@ -164,6 +196,14 @@ export function InboxClient({
         )
       );
     },
+    onMessageMedia: ({ conversationId, messageId, media }) => {
+      if (selectedIdRef.current !== conversationId) return;
+      setMessages((prev) =>
+        mergeMediaUpdates(prev, [
+          { conversationId, messageId, media: media as MediaUpdate["media"] },
+        ])
+      );
+    },
     onConversationUpdated: () => {
       void refetchConversations();
       // El agente movió de etapa o cambió el handoff: refresca el panel en vivo.
@@ -182,6 +222,38 @@ export function InboxClient({
   });
 
   const selected = conversations?.find((c) => c.id === selectedId) ?? null;
+
+  const retryMedia = useCallback(async (assetId: string): Promise<string | null> => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.media?.assetId === assetId
+          ? {
+              ...message,
+              media: { ...message.media, fetchStatus: "pending", fetchError: null },
+            }
+          : message
+      )
+    );
+    const res = await fetch(`/api/media/${assetId}/retry`, { method: "POST" }).catch(
+      () => null
+    );
+    if (!res) return "Sin conexión con el servidor";
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      return data?.error?.message ?? "No se pudo reintentar la descarga";
+    }
+    const data = (await res.json()) as { media: MediaUpdate["media"] };
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.media?.assetId === assetId ? { ...message, media: data.media } : message
+      )
+    );
+    return data.media.fetchStatus === "failed"
+      ? data.media.fetchError ?? "La descarga volvió a fallar"
+      : null;
+  }, []);
 
   /**
    * Hilo visible = lo confirmado + lo que aún viaja. El mensaje real puede
@@ -366,7 +438,7 @@ export function InboxClient({
                 </button>
               )}
             </header>
-            <MessageThread messages={thread} />
+            <MessageThread messages={thread} onRetryMedia={retryMedia} />
             <Composer
               conversation={selected}
               onSend={sendText}

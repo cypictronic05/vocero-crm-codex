@@ -143,8 +143,9 @@ export function mediaInputFrom(msg: WebhookMessage): MediaInput | null {
 }
 
 /**
- * Crea el media_asset de un mensaje recién insertado y dispara la descarga en
- * segundo plano si hay binario. Jamás lanza hacia el webhook (FR-013).
+ * Crea el media_asset de un mensaje recién insertado. La descarga se dispara
+ * después de publicar `message.new`: así `message.media` nunca puede llegar
+ * antes que la burbuja pendiente a la interfaz.
  */
 async function attachMediaAsset(
   organizationId: string,
@@ -173,10 +174,6 @@ async function attachMediaAsset(
       .update(schema.message)
       .set({ mediaAssetId: asset.id })
       .where(eq(schema.message.id, messageId));
-    if (asset.fetchStatus === "pending") {
-      // Descarga in-process, sin bloquear la ingesta; on-demand reintenta.
-      void ensureAssetAvailable(organizationId, asset.id).catch(() => {});
-    }
     return asset;
   } catch (err) {
     console.warn(`[media] no se pudo registrar el adjunto de ${messageId}:`, err);
@@ -420,6 +417,11 @@ async function ingestManualEcho(
       message: serializeMessage(message, asset),
     },
   });
+  if (asset?.fetchStatus === "pending") {
+    // Descarga in-process, sin bloquear la ingesta; el polling acotado de la
+    // Bandeja cubre una reconexión o un despliegue con más de un proceso.
+    void ensureAssetAvailable(organizationId, asset.id).catch(() => {});
+  }
   publish(organizationId, {
     type: "conversation.updated",
     data: { conversation: { id: conversation.id } },
@@ -524,6 +526,9 @@ export async function ingestInboundMessage(input: {
       message: serializeMessage(message, asset),
     },
   });
+  if (asset?.fetchStatus === "pending") {
+    void ensureAssetAvailable(organizationId, asset.id).catch(() => {});
+  }
   publish(organizationId, {
     type: "conversation.updated",
     data: { conversation: { id: conversation.id } },
@@ -562,6 +567,7 @@ export function serializeMessage(
           fileSize: media.fileSize,
           caption: media.caption,
           fetchStatus: media.fetchStatus,
+          fetchError: media.fetchError,
           payload: media.payload,
         }
       : null,

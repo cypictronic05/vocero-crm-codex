@@ -310,6 +310,18 @@ describe("asignación y tiempo real", () => {
     ).toBe(true);
     expect(
       await canReceiveSseEvent(state.session, {
+        type: "message.media",
+        data: { conversationId: "cv_other", messageId: "msg_1", media: {} },
+      })
+    ).toBe(false);
+    expect(
+      await canReceiveSseEvent(state.session, {
+        type: "message.media",
+        data: { conversationId: "cv_owned", messageId: "msg_1", media: {} },
+      })
+    ).toBe(true);
+    expect(
+      await canReceiveSseEvent(state.session, {
         type: "conversation.assignment",
         data: {
           conversationId: "cv_other",
