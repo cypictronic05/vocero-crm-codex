@@ -16,8 +16,11 @@ import {
   memberStatusSchema,
   weeklyScheduleSchema,
 } from "@/lib/team";
+import {
+  assignmentModeSchema,
+  decideAutomaticAssignment,
+} from "@/lib/assignment-mode";
 import { publish } from "@/server/events/bus";
-import { pickLeastLoadedMember } from "@/lib/assignment";
 
 export type AssignmentReason =
   | "automatic"
@@ -74,6 +77,18 @@ async function assign(input: AssignmentInput): Promise<AssignmentChange | null> 
   const change = await getDb().transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${`assignment-org:${input.organizationId}`}))`
+    );
+    const organizations = await tx
+      .select({ assignmentMode: schema.organization.assignmentMode })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, input.organizationId))
+      .limit(1);
+    const organization = organizations[0];
+    if (!organization) {
+      throw new AssignmentError("not_found", "Organización no encontrada");
+    }
+    const assignmentMode = assignmentModeSchema.parse(
+      organization.assignmentMode
     );
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${`conversation:${input.conversationId}`}))`
@@ -146,23 +161,23 @@ async function assign(input: AssignmentInput): Promise<AssignmentChange | null> 
         }
       }
     } else {
-      // Si el responsable actual sigue disponible no se mueve: esto evita
-      // relevar una conversación cada vez que entra un mensaje.
-      if (
-        conversation.assignedMemberId &&
-        available.some((member) => member.id === conversation.assignedMemberId)
-      ) {
-        return null;
-      }
-
       // La supervisora puede recibir un hilo por asignación explícita, pero no
       // entra en el reparto automático destinado a las operadoras.
       const automaticCandidates = available.filter(
         (member) => member.role === "member"
       );
-      const availableIds = automaticCandidates.map((member) => member.id);
       const loads = new Map<string, number>();
-      if (availableIds.length > 0) {
+      const currentMemberAvailable =
+        conversation.assignedMemberId !== null &&
+        available.some(
+          (member) => member.id === conversation.assignedMemberId
+        );
+      const availableIds = automaticCandidates.map((member) => member.id);
+      if (
+        assignmentMode === "automatic" &&
+        !currentMemberAvailable &&
+        availableIds.length > 0
+      ) {
         const loadRows = await tx
           .select({
             memberId: schema.conversation.assignedMemberId,
@@ -193,15 +208,23 @@ async function assign(input: AssignmentInput): Promise<AssignmentChange | null> 
           if (row.memberId) loads.set(row.memberId, row.amount);
         }
       }
-      targetMemberId = pickLeastLoadedMember(automaticCandidates, loads);
+      const decision = decideAutomaticAssignment({
+        mode: assignmentMode,
+        currentMemberId: conversation.assignedMemberId,
+        currentMemberAvailable,
+        candidates: automaticCandidates,
+        loads,
+      });
+      if (decision.action === "preserve") return null;
+      targetMemberId = decision.targetMemberId;
     }
 
     const fromMemberId = conversation.assignedMemberId;
     const effectiveReason: AssignmentReason = targetMemberId
       ? input.reason
-      : input.reason === "manual"
-        ? "manual"
-        : "queued_no_available";
+      : input.reason === "automatic"
+        ? "queued_no_available"
+        : input.reason;
 
     if (fromMemberId === targetMemberId) {
       if (targetMemberId !== null) return null;
@@ -315,13 +338,21 @@ export async function rebalanceMemberAssignments(input: {
   return changed;
 }
 
-export async function sweepConversationAssignments(at = new Date()) {
+export async function sweepConversationAssignments(
+  at = new Date(),
+  organizationId?: string,
+  includeUnassigned = false
+) {
   const rows = await getDb()
     .select({
       id: schema.conversation.id,
       organizationId: schema.conversation.organizationId,
     })
     .from(schema.conversation)
+    .innerJoin(
+      schema.organization,
+      eq(schema.organization.id, schema.conversation.organizationId)
+    )
     .leftJoin(schema.lead, eq(schema.lead.contactId, schema.conversation.contactId))
     .leftJoin(
       schema.pipelineStage,
@@ -330,17 +361,33 @@ export async function sweepConversationAssignments(at = new Date()) {
     .where(
       and(
         eq(schema.conversation.isTest, false),
+        organizationId
+          ? eq(schema.conversation.organizationId, organizationId)
+          : undefined,
         or(isNull(schema.lead.id), eq(schema.pipelineStage.kind, "open")),
         or(
-          isNotNull(schema.conversation.assignedMemberId),
-          sql`(
-            select cae.reason
-            from conversation_assignment_event cae
-            where cae.conversation_id = ${schema.conversation.id}
-              and cae.organization_id = ${schema.conversation.organizationId}
-            order by cae.created_at desc
-            limit 1
-          ) = 'queued_no_available'`
+          and(
+            eq(schema.organization.assignmentMode, "manual"),
+            // Manual solo revisa responsables vigentes para devolverlos a cola
+            // al terminar turno; jamás toma conversaciones ya sin asignar.
+            isNotNull(schema.conversation.assignedMemberId)
+          ),
+          and(
+            eq(schema.organization.assignmentMode, "automatic"),
+            or(
+              isNotNull(schema.conversation.assignedMemberId),
+              includeUnassigned
+                ? isNull(schema.conversation.assignedMemberId)
+                : sql`(
+                    select cae.reason
+                    from conversation_assignment_event cae
+                    where cae.conversation_id = ${schema.conversation.id}
+                      and cae.organization_id = ${schema.conversation.organizationId}
+                    order by cae.created_at desc
+                    limit 1
+                  ) = 'queued_no_available'`
+            )
+          )
         )
       )
     );

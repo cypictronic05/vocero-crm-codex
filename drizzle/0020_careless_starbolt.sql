@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "assignment_mode" text DEFAULT 'automatic' NOT NULL;

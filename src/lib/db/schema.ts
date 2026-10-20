@@ -10,6 +10,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { APP_ROLES } from "@/lib/auth/permissions";
+import { ASSIGNMENT_MODES } from "@/lib/assignment-mode";
 import { sql } from "drizzle-orm";
 
 /**
@@ -81,6 +82,10 @@ export const organization = pgTable("organization", {
   name: text("name").notNull(),
   slug: text("slug").unique(),
   logo: text("logo"),
+  /** 031 — Política de distribución humana. El default preserva instalaciones. */
+  assignmentMode: text("assignment_mode", { enum: ASSIGNMENT_MODES })
+    .notNull()
+    .default("automatic"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   metadata: text("metadata"),
 });

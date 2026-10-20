@@ -3,24 +3,32 @@ import { apiError, parseBody, withPermission } from "@/lib/api";
 import { getAuth, runInternalSignup } from "@/lib/auth";
 import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import { assignableRoleSchema } from "@/lib/team";
+import { getAssignmentMode } from "@/server/assignments/policy";
 import { createTeamMembership, listTeamMembers } from "@/server/team/service";
 
 export const dynamic = "force-dynamic";
 
 export const GET = withPermission(PERMISSIONS.TEAM_VIEW, async (session) => {
   const canManage = hasPermission(session.role, PERMISSIONS.TEAM_MANAGE);
-  const members = await listTeamMembers(session.organizationId);
+  const [members, assignmentMode] = await Promise.all([
+    listTeamMembers(session.organizationId),
+    getAssignmentMode(session.organizationId),
+  ]);
   return Response.json({
     members: canManage
       ? members
-      : members.map(({ id, role, status, name, availability }) => ({
+      : members.map(
+          ({ id, role, status, name, weeklySchedule, availability }) => ({
           id,
           role,
           status,
           name,
+          weeklySchedule,
           availability,
-        })),
+          })
+        ),
     canManage,
+    assignmentMode,
   });
 });
 

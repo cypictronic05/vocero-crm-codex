@@ -14,6 +14,7 @@ import type {
   OperatorAvailability,
   WeeklyShift,
 } from "@/lib/team";
+import type { AssignmentMode } from "@/lib/assignment-mode";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -21,8 +22,8 @@ type Member = {
   id: string;
   role: "owner" | AssignableRole;
   name: string;
-  email: string;
-  createdAt: string;
+  email?: string;
+  createdAt?: string;
   status: MemberStatus;
   weeklySchedule: WeeklyShift[];
   availability: OperatorAvailability;
@@ -88,7 +89,9 @@ function MemberScheduleCard({ member, canManage, onSaved }: {
           <ContactAvatar name={member.name} seed={member.id} size="sm" />
           <div className="min-w-0 flex-1">
             <CardTitle className="truncate text-base">{member.name}</CardTitle>
-            <CardDescription>{member.email}</CardDescription>
+            {member.email && (
+              <CardDescription>{member.email}</CardDescription>
+            )}
           </div>
           <Badge variant={member.role === "owner" ? "default" : "secondary"}>
             {member.role === "owner"
@@ -221,6 +224,10 @@ function MemberScheduleCard({ member, canManage, onSaved }: {
 export function TeamClient() {
   const [members, setMembers] = useState<Member[]>([]);
   const [canManage, setCanManage] = useState(false);
+  const [assignmentMode, setAssignmentMode] =
+    useState<AssignmentMode>("automatic");
+  const [savingMode, setSavingMode] = useState(false);
+  const [modeMessage, setModeMessage] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [tempPassword, setTempPassword] = useState("");
@@ -232,12 +239,41 @@ export function TeamClient() {
   const refetch = useCallback(async () => {
     const res = await fetch("/api/settings/team", { cache: "no-store" }).catch(() => null);
     if (!res?.ok) return;
-    const data = (await res.json()) as { members: Member[]; canManage: boolean };
+    const data = (await res.json()) as {
+      members: Member[];
+      canManage: boolean;
+      assignmentMode: AssignmentMode;
+    };
     setMembers(data.members);
     setCanManage(data.canManage);
+    setAssignmentMode(data.assignmentMode);
   }, []);
 
   useEffect(() => { void refetch(); }, [refetch]);
+
+  async function saveAssignmentMode(mode: AssignmentMode) {
+    const previous = assignmentMode;
+    setAssignmentMode(mode);
+    setSavingMode(true);
+    setModeMessage(null);
+    const response = await fetch("/api/settings/team/assignment-mode", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode }),
+    }).catch(() => null);
+    setSavingMode(false);
+    if (!response?.ok) {
+      setAssignmentMode(previous);
+      const body = (await response?.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      setModeMessage(
+        body?.error?.message ?? "No se pudo cambiar la modalidad"
+      );
+      return;
+    }
+    setModeMessage("Modalidad actualizada");
+  }
 
   function generatePassword() {
     const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -276,6 +312,56 @@ export function TeamClient() {
 
   return (
     <div className="max-w-4xl space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Distribución de conversaciones</CardTitle>
+          <CardDescription>
+            Define cómo llegan las conversaciones a las operadoras. El cambio no
+            modifica mensajes, historial ni responsables actuales.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {canManage ? (
+            <div className="max-w-md space-y-1.5">
+              <Label htmlFor="assignment-mode">Modalidad</Label>
+              <select
+                id="assignment-mode"
+                value={assignmentMode}
+                disabled={savingMode}
+                onChange={(event) =>
+                  void saveAssignmentMode(
+                    event.target.value as AssignmentMode
+                  )
+                }
+                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60"
+              >
+                <option value="manual">Manual · supervisión asigna la cola</option>
+                <option value="automatic">
+                  Automática · menor carga, horario y disponibilidad
+                </option>
+              </select>
+            </div>
+          ) : (
+            <Badge variant="outline">
+              {assignmentMode === "manual" ? "Manual" : "Automática"}
+            </Badge>
+          )}
+          <p className="text-sm text-text-2">
+            {assignmentMode === "manual"
+              ? "Las conversaciones nuevas quedan sin responsable hasta que el propietario o la supervisora las asigne."
+              : "El sistema asigna y releva operadoras habilitadas según su turno y carga activa."}
+          </p>
+          {!canManage && (
+            <p className="text-xs text-text-3">
+              Solo el propietario puede cambiar esta política.
+            </p>
+          )}
+          {modeMessage && (
+            <p className="text-sm text-text-2">{modeMessage}</p>
+          )}
+        </CardContent>
+      </Card>
+
       {canManage && (
         <Card>
           <CardHeader>

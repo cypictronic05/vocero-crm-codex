@@ -74,6 +74,7 @@ function InboxEmptyState({ onSeeded }: { onSeeded: () => void }) {
 export function ConversationList({
   conversations: conversationsProp,
   channels,
+  canFilterQueue,
   selectedId,
   onSelect,
   onSeeded,
@@ -81,12 +82,16 @@ export function ConversationList({
   conversations: ConversationDto[] | null;
   /** Canales encendidos en esta instancia (ADR-001). */
   channels: readonly Channel[];
+  /** Propietario y supervisora pueden inspeccionar la cola sin asignar. */
+  canFilterQueue: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSeeded: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "unread" | "anuncios">("all");
+  const [filter, setFilter] = useState<
+    "all" | "unread" | "anuncios" | "unassigned"
+  >("all");
   const [stage, setStage] = useState<string>("all");
   const [inbox, setInbox] = useState<Channel | "all">("all");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -125,12 +130,15 @@ export function ConversationList({
   const unreadCount = inInbox.filter((c) => c.unreadCount > 0).length;
   // 018: las que abrió un anuncio (o una publicación con botón de WhatsApp).
   const deAnuncios = inInbox.filter((c) => c.anuncio !== null);
+  const unassigned = inInbox.filter((c) => c.assignee === null);
   const visible =
     filter === "unread"
       ? inInbox.filter((c) => c.unreadCount > 0)
       : filter === "anuncios"
         ? deAnuncios
-        : inInbox;
+        : filter === "unassigned"
+          ? unassigned
+          : inInbox;
   // Sin ninguna conversación de anuncio el filtro no aparece: a quien no
   // anuncia no se le pinta un botón que siempre dice 0. Si está elegido, se
   // queda, para poder salir de él aunque el contador baje a cero.
@@ -140,6 +148,13 @@ export function ConversationList({
   ];
   if (deAnuncios.length > 0 || filter === "anuncios") {
     filtros.push({ id: "anuncios", label: "Anuncios", count: deAnuncios.length });
+  }
+  if (canFilterQueue) {
+    filtros.push({
+      id: "unassigned",
+      label: "Sin asignar",
+      count: unassigned.length,
+    });
   }
   // Con un solo canal encendido no hay bandejas que distinguir: ni marca en
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.

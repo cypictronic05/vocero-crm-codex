@@ -44,6 +44,10 @@ vi.mock("@/server/team/service", () => ({
   },
 }));
 
+vi.mock("@/server/assignments/policy", () => ({
+  getAssignmentMode: async () => "automatic",
+}));
+
 import * as route from "@/app/api/settings/team/route";
 
 beforeEach(() => {
@@ -109,5 +113,8 @@ describe("alta interna y aislamiento de organización", () => {
     const response = await route.GET();
     expect(response.status).toBe(200);
     expect(state.listedOrganization).toBe("org_a");
+    expect(await response.json()).toEqual(
+      expect.objectContaining({ assignmentMode: "automatic" })
+    );
   });
 });

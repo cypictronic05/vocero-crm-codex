@@ -381,6 +381,7 @@ export function InboxClient({
         <ConversationList
           conversations={conversations}
           channels={channels}
+          canFilterQueue={canAssign}
           selectedId={selectedId}
           onSelect={select}
           onSeeded={() => void refetchConversations()}

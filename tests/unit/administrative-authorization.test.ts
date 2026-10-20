@@ -265,6 +265,10 @@ describe("cobertura de superficies administrativas", () => {
     ["src/app/api/agent/profile/route.ts", "PERMISSIONS.AGENT_CONFIGURE"],
     ["src/app/api/kb/route.ts", "PERMISSIONS.AGENT_CONFIGURE"],
     ["src/app/api/settings/team/route.ts", "PERMISSIONS.TEAM_MANAGE"],
+    [
+      "src/app/api/settings/team/assignment-mode/route.ts",
+      "PERMISSIONS.TEAM_MANAGE",
+    ],
     ["src/app/api/calendar/settings/route.ts", "PERMISSIONS.INTEGRATIONS_CONFIGURE"],
     ["src/app/api/templates/sync/route.ts", "PERMISSIONS.TEMPLATES_CONFIGURE"],
     ["src/app/api/pipeline/stages/[id]/route.ts", "PERMISSIONS.PIPELINE_CONFIGURE"],
