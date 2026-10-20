@@ -4,7 +4,6 @@ import {
   COCUYOTEC_URL,
   PRODUCT_FAVICON,
   PRODUCT_NAME,
-  VOCERO_AUTHOR_URL,
 } from "@/lib/product-brand";
 
 describe("identidad pública CRM - COCUYO", () => {
@@ -12,7 +11,6 @@ describe("identidad pública CRM - COCUYO", () => {
     expect(PRODUCT_NAME).toBe("CRM - COCUYO");
     expect(PRODUCT_FAVICON).toBe("/brand/cocuyo-mark.svg?v=2");
     expect(COCUYOTEC_URL).toBe("https://cocuyotec.com/");
-    expect(VOCERO_AUTHOR_URL).toBe("https://github.com/kevinrivm/vocero-crm");
   });
 
   it("sirve un SVG liviano con los tres colores de la marca", () => {
@@ -39,12 +37,17 @@ describe("login sin alta pública", () => {
     expect(auth).toContain("El registro público está cerrado");
   });
 
-  it("usa la marca del producto y la atribución aprobada, no la organización", () => {
+  it("usa la marca del producto y únicamente el crédito visible de Cocuyotec", () => {
     const authLayout = readFileSync("src/app/(auth)/layout.tsx", "utf8");
     const logo = readFileSync("src/components/cocuyo-brand.tsx", "utf8");
     expect(authLayout).not.toContain("getBranding");
     expect(authLayout).not.toContain("CRM de WhatsApp con agente de IA");
-    expect(authLayout).toContain("Basado en Vocero CRM de");
+    expect(authLayout).toContain("Personalizado por");
+    expect(authLayout).toContain("Cocuyotec SPA");
+    expect(authLayout).toContain("href={COCUYOTEC_URL}");
+    expect(authLayout).not.toContain("Basado en Vocero CRM de");
+    expect(authLayout).not.toContain("Kevin Belier");
+    expect(authLayout).not.toContain("VOCERO_AUTHOR_URL");
     expect(logo).toContain(">COCUYO</span>");
   });
 });

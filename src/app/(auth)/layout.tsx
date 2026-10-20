@@ -1,5 +1,5 @@
 import { CocuyoLogo } from "@/components/cocuyo-brand";
-import { COCUYOTEC_URL, VOCERO_AUTHOR_URL } from "@/lib/product-brand";
+import { COCUYOTEC_URL } from "@/lib/product-brand";
 
 /**
  * Acceso con identidad fija del producto. La marca organizacional (Nexora)
@@ -29,15 +29,6 @@ export default function AuthLayout({
           className="font-semibold text-[#344766] underline-offset-4 hover:text-[#1265d8] hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1265d8]"
         >
           Cocuyotec SPA
-        </a>
-        {" · Basado en Vocero CRM de "}
-        <a
-          href={VOCERO_AUTHOR_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="font-semibold text-[#344766] underline-offset-4 hover:text-[#1265d8] hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1265d8]"
-        >
-          Kevin Belier
         </a>
       </footer>
     </main>
