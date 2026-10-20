@@ -18,9 +18,9 @@ import {
 } from "@/server/team/http";
 import { ensureConversationAssignment } from "@/server/assignments/service";
 import {
-  assertConversationAccess,
+  assertConversationSendAccess,
   canAccessContact,
-  ConversationAccessError,
+  ConversationSendAccessError,
   withConversationSendLock,
 } from "@/server/assignments/access";
 
@@ -79,7 +79,7 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   });
 
   try {
-    await assertConversationAccess(session, conversation.id);
+    await assertConversationSendAccess(session, conversation.id);
     // Gastar una plantilla teniendo la ventana abierta es tirar dinero y
     // reputación de plantilla: se avisa solo después de autorizar el hilo.
     if (isWindowOpen(conversation.lastInboundAt)) {
@@ -104,8 +104,8 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   } catch (err) {
     const availabilityDenied = operatorSendErrorResponse(err);
     if (availabilityDenied) return availabilityDenied;
-    if (err instanceof ConversationAccessError) {
-      return apiError(404, "not_found", err.message);
+    if (err instanceof ConversationSendAccessError) {
+      return apiError(403, "forbidden", err.message);
     }
     if (err instanceof TemplateError) {
       return apiError(templateErrorStatus(err), err.code, err.message);

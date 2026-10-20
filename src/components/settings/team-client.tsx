@@ -8,13 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { MemberStatus, OperatorAvailability, WeeklyShift } from "@/lib/team";
+import type {
+  AssignableRole,
+  MemberStatus,
+  OperatorAvailability,
+  WeeklyShift,
+} from "@/lib/team";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
 type Member = {
   id: string;
-  role: string;
+  role: "owner" | AssignableRole;
   name: string;
   email: string;
   createdAt: string;
@@ -38,6 +43,9 @@ function MemberScheduleCard({ member, canManage, onSaved }: {
   onSaved: () => void;
 }) {
   const [status, setStatus] = useState(member.status);
+  const [role, setRole] = useState<AssignableRole>(
+    member.role === "supervisor" ? "supervisor" : "member"
+  );
   const [schedule, setSchedule] = useState(member.weeklySchedule);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -45,8 +53,9 @@ function MemberScheduleCard({ member, canManage, onSaved }: {
 
   useEffect(() => {
     setStatus(member.status);
+    if (member.role !== "owner") setRole(member.role);
     setSchedule(member.weeklySchedule);
-  }, [member.status, member.weeklySchedule]);
+  }, [member.role, member.status, member.weeklySchedule]);
 
   function replaceShift(index: number, patch: Partial<WeeklyShift>) {
     setSchedule((current) => current.map((shift, currentIndex) =>
@@ -60,7 +69,7 @@ function MemberScheduleCard({ member, canManage, onSaved }: {
     const response = await fetch(`/api/settings/team/${member.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status, weeklySchedule: schedule }),
+      body: JSON.stringify({ role, status, weeklySchedule: schedule }),
     }).catch(() => null);
     setSaving(false);
     if (!response?.ok) {
@@ -82,7 +91,11 @@ function MemberScheduleCard({ member, canManage, onSaved }: {
             <CardDescription>{member.email}</CardDescription>
           </div>
           <Badge variant={member.role === "owner" ? "default" : "secondary"}>
-            {member.role === "owner" ? "Propietario" : "Miembro"}
+            {member.role === "owner"
+              ? "Propietario"
+              : member.role === "supervisor"
+                ? "Supervisora"
+                : "Miembro"}
           </Badge>
           <Badge variant={member.availability.canSend ? "default" : "outline"}>
             {member.availability.canSend
@@ -97,18 +110,33 @@ function MemberScheduleCard({ member, canManage, onSaved }: {
             El propietario conserva siempre acceso de administración y envío para recuperar la instancia.
           </p>
         ) : (
-          <div className="max-w-xs space-y-1.5">
-            <Label htmlFor={`status-${member.id}`}>Estado administrativo</Label>
-            <select
-              id={`status-${member.id}`}
-              value={status}
-              disabled={!editable}
-              onChange={(event) => setStatus(event.target.value as MemberStatus)}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60"
-            >
-              <option value="enabled">Habilitado</option>
-              <option value="suspended">Suspendido</option>
-            </select>
+          <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor={`role-${member.id}`}>Rol</Label>
+              <select
+                id={`role-${member.id}`}
+                value={role}
+                disabled={!editable}
+                onChange={(event) => setRole(event.target.value as AssignableRole)}
+                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60"
+              >
+                <option value="member">Operadora</option>
+                <option value="supervisor">Supervisora</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`status-${member.id}`}>Estado administrativo</Label>
+              <select
+                id={`status-${member.id}`}
+                value={status}
+                disabled={!editable}
+                onChange={(event) => setStatus(event.target.value as MemberStatus)}
+                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60"
+              >
+                <option value="enabled">Habilitado</option>
+                <option value="suspended">Suspendido</option>
+              </select>
+            </div>
           </div>
         )}
 
@@ -196,6 +224,7 @@ export function TeamClient() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [tempPassword, setTempPassword] = useState("");
+  const [newRole, setNewRole] = useState<AssignableRole>("member");
   const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -224,7 +253,12 @@ export function TeamClient() {
     const res = await fetch("/api/settings/team", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, email, password: tempPassword }),
+      body: JSON.stringify({
+        name,
+        email,
+        password: tempPassword,
+        role: newRole,
+      }),
     }).catch(() => null);
     setSaving(false);
     if (!res?.ok) {
@@ -236,6 +270,7 @@ export function TeamClient() {
     setName("");
     setEmail("");
     setTempPassword("");
+    setNewRole("member");
     void refetch();
   }
 
@@ -266,6 +301,20 @@ export function TeamClient() {
                 <Input id="team-password" value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} placeholder="mínimo 8 caracteres" />
                 <Button variant="outline" onClick={generatePassword}>Generar</Button>
               </div>
+            </div>
+            <div className="max-w-xs space-y-1.5">
+              <Label htmlFor="team-role">Rol inicial</Label>
+              <select
+                id="team-role"
+                value={newRole}
+                onChange={(event) =>
+                  setNewRole(event.target.value as AssignableRole)
+                }
+                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
+              >
+                <option value="member">Operadora</option>
+                <option value="supervisor">Supervisora</option>
+              </select>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             {created && (

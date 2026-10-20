@@ -112,7 +112,7 @@ async function assign(input: AssignmentInput): Promise<AssignmentChange | null> 
       .where(
         and(
           eq(schema.member.organizationId, input.organizationId),
-          eq(schema.member.role, "member")
+          inArray(schema.member.role, ["member", "supervisor"])
         )
       )
       .orderBy(asc(schema.member.createdAt), asc(schema.member.id));
@@ -155,7 +155,12 @@ async function assign(input: AssignmentInput): Promise<AssignmentChange | null> 
         return null;
       }
 
-      const availableIds = available.map((member) => member.id);
+      // La supervisora puede recibir un hilo por asignación explícita, pero no
+      // entra en el reparto automático destinado a las operadoras.
+      const automaticCandidates = available.filter(
+        (member) => member.role === "member"
+      );
+      const availableIds = automaticCandidates.map((member) => member.id);
       const loads = new Map<string, number>();
       if (availableIds.length > 0) {
         const loadRows = await tx
@@ -188,7 +193,7 @@ async function assign(input: AssignmentInput): Promise<AssignmentChange | null> 
           if (row.memberId) loads.set(row.memberId, row.amount);
         }
       }
-      targetMemberId = pickLeastLoadedMember(available, loads);
+      targetMemberId = pickLeastLoadedMember(automaticCandidates, loads);
     }
 
     const fromMemberId = conversation.assignedMemberId;

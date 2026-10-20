@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { canConfigure } from "@/lib/auth/roles";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 
 /**
  * #87 — El modelo del menú, separado del componente que lo pinta.
@@ -74,11 +75,15 @@ export function appNavGroups({
       ]
     : [];
 
+  const results = hasPermission(role, PERMISSIONS.RESULTS_VIEW)
+    ? [{ items: [{ href: "/results", label: "Resultados", icon: ChartColumn }] }]
+    : [];
+
   return [
     { title: "Trabajo", items: trabajo },
     ...(agente.length > 0 ? [{ title: "Agente", items: agente }] : []),
     // 019 — Se mide al final: primero se atiende y se organiza.
-    { items: [{ href: "/results", label: "Resultados", icon: ChartColumn }] },
+    ...results,
   ];
 }
 

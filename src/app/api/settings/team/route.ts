@@ -1,15 +1,26 @@
 import { z } from "zod";
 import { apiError, parseBody, withPermission } from "@/lib/api";
 import { getAuth, runInternalSignup } from "@/lib/auth";
-import { PERMISSIONS } from "@/lib/auth/permissions";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
+import { assignableRoleSchema } from "@/lib/team";
 import { createTeamMembership, listTeamMembers } from "@/server/team/service";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withPermission(PERMISSIONS.TEAM_MANAGE, async (session) => {
+export const GET = withPermission(PERMISSIONS.TEAM_VIEW, async (session) => {
+  const canManage = hasPermission(session.role, PERMISSIONS.TEAM_MANAGE);
+  const members = await listTeamMembers(session.organizationId);
   return Response.json({
-    members: await listTeamMembers(session.organizationId),
-    canManage: true,
+    members: canManage
+      ? members
+      : members.map(({ id, role, status, name, availability }) => ({
+          id,
+          role,
+          status,
+          name,
+          availability,
+        })),
+    canManage,
   });
 });
 
@@ -17,6 +28,7 @@ const createSchema = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email(),
   password: z.string().min(8).max(128),
+  role: assignableRoleSchema.default("member"),
 });
 
 /** Alta de cuenta de equipo (owner only): email + contraseña temporal (FR-061). */
@@ -50,6 +62,7 @@ export const POST = withPermission(PERMISSIONS.TEAM_MANAGE, async (session, req:
     organizationId: session.organizationId,
     actorUserId: session.userId,
     userId: newUserId,
+    role: body.data.role ?? "member",
   });
 
   return Response.json({ ok: true }, { status: 201 });

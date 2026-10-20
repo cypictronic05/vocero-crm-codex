@@ -16,13 +16,20 @@ const labels = (groups: { items: { label: string }[] }[]) =>
   groups.map((g) => g.items.map((i) => i.label));
 
 describe("barra lateral agrupada", () => {
-  it("un miembro solo ve superficies operativas y Resultados", () => {
+  it("un miembro solo ve superficies operativas propias", () => {
     const groups = appNavGroups({ role: "member" });
-    expect(groups.map((g) => g.title)).toEqual(["Trabajo", undefined]);
-    expect(labels(groups)).toEqual([
-      ["Bandeja", "Pipeline", "Contactos"],
-      ["Resultados"],
-    ]);
+    expect(groups.map((g) => g.title)).toEqual(["Trabajo"]);
+    expect(labels(groups)).toEqual([["Bandeja", "Pipeline", "Contactos"]]);
+  });
+
+  it("la supervisora ve Resultados sin recibir las pantallas técnicas", () => {
+    const hrefs = appNavGroups({ role: "supervisor" })
+      .flatMap((group) => group.items)
+      .map((item) => item.href);
+    expect(hrefs).toContain("/results");
+    expect(hrefs).not.toContain("/agent");
+    expect(hrefs).not.toContain("/lab");
+    expect(hrefs).not.toContain("/onboarding");
   });
 
   it("AGENDA añade Citas al final de Trabajo", () => {

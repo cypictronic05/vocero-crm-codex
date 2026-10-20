@@ -9,6 +9,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { APP_ROLES } from "@/lib/auth/permissions";
 import { sql } from "drizzle-orm";
 
 /**
@@ -92,7 +93,7 @@ export const member = pgTable("member", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  role: text("role").notNull().default("member"),
+  role: text("role", { enum: APP_ROLES }).notNull().default("member"),
   status: text("status").notNull().default("enabled"),
   weeklySchedule: jsonb("weekly_schedule")
     .$type<{ day: number; startMinute: number; endMinute: number }[]>()
@@ -103,7 +104,7 @@ export const member = pgTable("member", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-/** Auditoría append-only de altas y cambios de disponibilidad del equipo. */
+/** Auditoría append-only de altas, roles y disponibilidad del equipo. */
 export const teamAuditEvent = pgTable(
   "team_audit_event",
   {

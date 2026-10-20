@@ -34,14 +34,14 @@ const HANDOFF_LABELS: Record<string, string> = {
 
 export function ContactPanel({
   conversation,
-  isOwner,
+  canAssign,
   refreshKey = 0,
   onPatchConversation,
   onAssignmentChanged,
   onClose,
 }: {
   conversation: ConversationDto;
-  isOwner: boolean;
+  canAssign: boolean;
   /** Aumenta con cada evento SSE relevante: dispara un refetch en vivo. */
   refreshKey?: number;
   onPatchConversation: (patch: {
@@ -78,14 +78,14 @@ export function ContactPanel({
   const contactId = conversation.contact.id;
 
   useEffect(() => {
-    if (!isOwner) return;
+    if (!canAssign) return;
     void fetch("/api/settings/team")
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
         if (data?.members) setMembers(data.members);
       })
       .catch(() => null);
-  }, [isOwner, refreshKey]);
+  }, [canAssign, refreshKey]);
 
   async function changeAssignment(memberId: string) {
     setSavingAssignment(true);
@@ -246,7 +246,7 @@ export function ContactPanel({
 
           <div className="mt-3 rounded-md border bg-subtle px-3 py-2.5">
             <p className="text-[13px] font-medium">Responsable</p>
-            {isOwner ? (
+            {canAssign ? (
               <select
                 aria-label="Responsable de la conversación"
                 className="mt-1.5 w-full rounded-md border border-border-strong bg-background px-2.5 py-2 text-xs"
@@ -256,7 +256,10 @@ export function ContactPanel({
               >
                 <option value="">Sin asignar · cola</option>
                 {members
-                  .filter((member) => member.role === "member")
+                  .filter(
+                    (member) =>
+                      member.role === "member" || member.role === "supervisor"
+                  )
                   .map((member) => (
                     <option
                       key={member.id}

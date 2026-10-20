@@ -2,6 +2,7 @@ import { InboxClient } from "@/components/inbox/inbox-client";
 import { CHANNEL_ORDER } from "@/lib/channels";
 import { enabledChannels } from "@/server/channels/enabled";
 import { requireSession } from "@/lib/auth/session";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,5 +18,12 @@ export default async function InboxPage() {
   const channels = CHANNEL_ORDER.filter((c) => enabled.has(c));
   const session = await requireSession();
 
-  return <InboxClient channels={channels} isOwner={session.role === "owner"} />;
+  return (
+    <InboxClient
+      channels={channels}
+      role={session.role}
+      memberId={session.memberId}
+      canAssign={hasPermission(session.role, PERMISSIONS.CONVERSATIONS_ASSIGN)}
+    />
+  );
 }

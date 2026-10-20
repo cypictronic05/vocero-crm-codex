@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
     userId: "usr_member",
     memberId: "mem_a",
     organizationId: "org_a",
-    role: "member",
+    role: "member" as "owner" | "supervisor" | "member",
   },
   conversationAllowed: false,
   contactAllowed: false,
@@ -70,8 +70,10 @@ vi.mock("@/server/team/http", () => ({
 
 vi.mock("@/server/assignments/access", () => {
   class ConversationAccessError extends Error {}
+  class ConversationSendAccessError extends Error {}
   return {
     ConversationAccessError,
+    ConversationSendAccessError,
     withConversationSendLock: async (
       _session: unknown,
       _conversationId: string,
@@ -82,7 +84,9 @@ vi.mock("@/server/assignments/access", () => {
           code: state.deniedInsideLock,
         });
       }
-      if (!state.sendAllowed) throw new ConversationAccessError("no encontrada");
+      if (!state.sendAllowed) {
+        throw new ConversationSendAccessError("sin autorización");
+      }
       return action();
     },
     canAccessConversation: async (_session: unknown, conversationId: string) =>
@@ -182,7 +186,7 @@ describe("API y URL directa", () => {
     expect(response.status).toBe(404);
   });
 
-  it("responde 404 y no envía si el hilo no pertenece al miembro", async () => {
+  it("responde 403 y no envía si el hilo no pertenece al miembro", async () => {
     const response = await messagesRoute.POST(
       new Request("http://localhost/api/conversations/cv_other/messages", {
         method: "POST",
@@ -191,7 +195,7 @@ describe("API y URL directa", () => {
       }),
       context("cv_other")
     );
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(403);
     expect(state.sendCalls).toBe(0);
   });
 
@@ -278,7 +282,7 @@ describe("API y URL directa", () => {
 });
 
 describe("asignación y tiempo real", () => {
-  it("rechaza reasignación de miembros y la permite al propietario", async () => {
+  it("rechaza reasignación de miembros y la permite a supervisora y propietario", async () => {
     const request = () =>
       new Request("http://localhost/api/conversations/cv_other/assignment", {
         method: "PATCH",
@@ -289,10 +293,11 @@ describe("asignación y tiempo real", () => {
     expect(denied.status).toBe(403);
     expect(state.assignmentCalls).toBe(0);
 
+    state.session.role = "supervisor";
+    expect((await assignmentRoute.PATCH(request(), context("cv_other"))).status).toBe(200);
     state.session.role = "owner";
-    const allowed = await assignmentRoute.PATCH(request(), context("cv_other"));
-    expect(allowed.status).toBe(200);
-    expect(state.assignmentCalls).toBe(1);
+    expect((await assignmentRoute.PATCH(request(), context("cv_other"))).status).toBe(200);
+    expect(state.assignmentCalls).toBe(2);
   });
 
   it("no entrega eventos de conversaciones ajenas", async () => {
@@ -329,6 +334,38 @@ describe("asignación y tiempo real", () => {
           toMemberId: "mem_c",
           assignmentVersion: 2,
           reason: "manual",
+        },
+      })
+    ).toBe(false);
+  });
+
+  it("la supervisora recibe todos los eventos de su canal organizacional", async () => {
+    state.session.role = "supervisor";
+    expect(
+      await canReceiveSseEvent(state.session, {
+        type: "message.new",
+        data: { conversationId: "cv_other", message: {} },
+      })
+    ).toBe(true);
+    expect(
+      await canReceiveSseEvent(state.session, {
+        type: "conversation.assignment",
+        data: {
+          conversationId: "cv_other",
+          fromMemberId: "mem_b",
+          toMemberId: "mem_c",
+          assignmentVersion: 3,
+          reason: "manual",
+        },
+      })
+    ).toBe(true);
+    expect(
+      await canReceiveSseEvent(state.session, {
+        type: "lab.run",
+        data: {
+          runId: "run_privado",
+          status: "running",
+          progress: { done: 1, total: 2 },
         },
       })
     ).toBe(false);

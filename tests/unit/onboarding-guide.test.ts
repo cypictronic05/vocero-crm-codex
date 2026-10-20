@@ -116,6 +116,8 @@ describe("guideFirst: ¿la guía es la primera pantalla?", () => {
   it("con todo listo y el agente encendido se entra a la Bandeja como siempre", async () => {
     onboardingStatus.mockResolvedValue({ steps: all(), enabled: true });
     expect(await guideFirst({ organizationId: "org_1", role: "owner" })).toBe(false);
-    expect(await guideFirst({ organizationId: "org_1", role: "admin" })).toBe(false);
+    expect(
+      await guideFirst({ organizationId: "org_1", role: "admin" as never })
+    ).toBe(false);
   });
 });

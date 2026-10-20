@@ -1,12 +1,13 @@
 import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth";
 import { resolveMembership } from "@/server/auth/on-signup";
+import { isAppRole, type AppRole } from "@/lib/auth/permissions";
 
 export type SessionContext = {
   userId: string;
   memberId: string;
   organizationId: string;
-  role: string;
+  role: AppRole;
 };
 
 export class UnauthorizedError extends Error {
@@ -29,6 +30,9 @@ export async function requireSession(): Promise<SessionContext> {
   const membership = await resolveMembership(session.user.id);
   if (!membership) {
     throw new UnauthorizedError("Sesión sin organización activa");
+  }
+  if (!isAppRole(membership.role)) {
+    throw new UnauthorizedError("La cuenta tiene un rol no reconocido");
   }
   return {
     userId: session.user.id,

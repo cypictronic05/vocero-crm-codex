@@ -131,6 +131,13 @@ const member = {
   role: "member",
 };
 
+const supervisor = {
+  userId: "usr_supervisor",
+  memberId: "mem_supervisor",
+  organizationId: "org_a",
+  role: "supervisor",
+};
+
 function whatsappPut() {
   return new Request("http://localhost/api/settings/whatsapp", {
     method: "PUT",
@@ -153,9 +160,14 @@ describe("autorización administrativa central", () => {
   it("la matriz es fail-closed y mantiene capacidades separadas", () => {
     expect(hasPermission("owner", PERMISSIONS.CHANNELS_CONFIGURE)).toBe(true);
     expect(hasPermission("owner", PERMISSIONS.CONVERSATIONS_ASSIGN)).toBe(true);
+    expect(hasPermission("supervisor", PERMISSIONS.CONVERSATIONS_ASSIGN)).toBe(true);
+    expect(hasPermission("supervisor", PERMISSIONS.CONVERSATIONS_VIEW_ALL)).toBe(true);
+    expect(hasPermission("supervisor", PERMISSIONS.RESULTS_VIEW)).toBe(true);
+    expect(hasPermission("supervisor", PERMISSIONS.TEAM_VIEW)).toBe(true);
     expect(hasPermission("member", PERMISSIONS.CHANNELS_CONFIGURE)).toBe(false);
     expect(hasPermission("admin", PERMISSIONS.CHANNELS_CONFIGURE)).toBe(false);
     expect(hasPermission("supervisor", PERMISSIONS.CHANNELS_CONFIGURE)).toBe(false);
+    expect(hasPermission("supervisor", PERMISSIONS.TEAM_MANAGE)).toBe(false);
   });
 
   it("devuelve 401 sin sesión y no ejecuta la operación", async () => {
@@ -212,6 +224,16 @@ describe("autorización administrativa central", () => {
     state.session = member;
     expect((await googleRoute.DELETE()).status).toBe(403);
     expect(state.calls).not.toContain("google.delete");
+  });
+
+  it("la supervisora no puede modificar canales, IA ni integraciones", async () => {
+    state.session = supervisor;
+    expect((await whatsappRoute.DELETE()).status).toBe(403);
+    expect((await webhookRoute.GET()).status).toBe(403);
+    expect((await aiRoute.DELETE()).status).toBe(403);
+    expect((await googleRoute.DELETE()).status).toBe(403);
+    expect(state.calls).toEqual([]);
+    expect(state.verifyTokenReads).toBe(0);
   });
 });
 

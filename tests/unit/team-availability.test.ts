@@ -66,6 +66,7 @@ describe("disponibilidad del equipo en America/Bogota", () => {
     expect(canManageTeam("owner")).toBe(true);
     expect(canManageTeam("admin")).toBe(false);
     expect(canManageTeam("member")).toBe(false);
+    expect(canManageTeam("supervisor")).toBe(false);
   });
 });
 

@@ -38,10 +38,12 @@ function parseCoords(raw: string): { latitude: number; longitude: number } | nul
 
 export function Composer({
   conversation,
+  canReply,
   onSend,
   onSent,
 }: {
   conversation: ConversationDto;
+  canReply: boolean;
   onSend: (text: string) => Promise<string | null>;
   onSent: () => void;
 }) {
@@ -204,6 +206,22 @@ export function Composer({
     setContactName("");
     setContactPhone("");
     onSent();
+  }
+
+  if (!canReply) {
+    return (
+      <div className="border-t bg-background px-[18px] py-3.5">
+        <div className="flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint p-3 text-sm text-warning-text">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
+          <div>
+            <p className="font-medium">Conversación en modo consulta</p>
+            <p className="opacity-80">
+              Asígnala a tu cuenta para responder desde el número oficial.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!availability?.canSend) {

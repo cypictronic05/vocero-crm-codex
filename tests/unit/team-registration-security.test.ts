@@ -55,7 +55,7 @@ beforeEach(() => {
   state.listedOrganization = "";
 });
 
-function createRequest() {
+function createRequest(role?: "member" | "supervisor") {
   return new Request("http://localhost/api/settings/team", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -63,6 +63,7 @@ function createRequest() {
       name: "Trabajadora",
       email: "worker@example.com",
       password: "temporal-segura",
+      ...(role ? { role } : {}),
       organizationId: "org_b",
     }),
   });
@@ -88,7 +89,19 @@ describe("alta interna y aislamiento de organización", () => {
         organizationId: "org_a",
         actorUserId: "usr_owner_a",
         userId: "usr_worker",
+        role: "member",
       },
+    ]);
+  });
+
+  it("el owner puede crear directamente una cuenta supervisora", async () => {
+    const response = await route.POST(createRequest("supervisor"));
+    expect(response.status).toBe(201);
+    expect(state.memberships).toEqual([
+      expect.objectContaining({
+        organizationId: "org_a",
+        role: "supervisor",
+      }),
     ]);
   });
 

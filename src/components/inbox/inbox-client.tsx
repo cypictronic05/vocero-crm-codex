@@ -6,6 +6,7 @@ import { ChevronLeft, PanelRight } from "lucide-react";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import type { ConversationDto, MessageDto } from "@/lib/types";
+import type { AppRole } from "@/lib/auth/permissions";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { useEvents } from "@/components/use-events";
@@ -44,10 +45,14 @@ const isWideEnoughForPanel = () =>
 
 export function InboxClient({
   channels,
-  isOwner,
+  role,
+  memberId,
+  canAssign,
 }: {
   channels: readonly Channel[];
-  isOwner: boolean;
+  role: AppRole;
+  memberId: string;
+  canAssign: boolean;
 }) {
   const multiChannel = channels.length > 1;
   const [conversations, setConversations] = useState<ConversationDto[] | null>(
@@ -441,6 +446,9 @@ export function InboxClient({
             <MessageThread messages={thread} onRetryMedia={retryMedia} />
             <Composer
               conversation={selected}
+              canReply={
+                role === "owner" || selected.assignee?.id === memberId
+              }
               onSend={sendText}
               onSent={() => {
                 if (selectedIdRef.current)
@@ -484,7 +492,7 @@ export function InboxClient({
           <div className="h-full w-[320px] max-xl:w-[min(320px,88vw)]">
             <ContactPanel
               conversation={selected}
-              isOwner={isOwner}
+              canAssign={canAssign}
               refreshKey={detailRev}
               onPatchConversation={patchConversation}
               onAssignmentChanged={() => void refetchConversations()}

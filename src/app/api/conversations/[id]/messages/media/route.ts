@@ -7,7 +7,7 @@ import {
   operatorSendErrorResponse,
 } from "@/server/team/http";
 import {
-  ConversationAccessError,
+  ConversationSendAccessError,
   withConversationSendLock,
 } from "@/server/assignments/access";
 
@@ -70,8 +70,8 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   } catch (err) {
     const availabilityDenied = operatorSendErrorResponse(err);
     if (availabilityDenied) return availabilityDenied;
-    if (err instanceof ConversationAccessError) {
-      return apiError(404, "not_found", err.message);
+    if (err instanceof ConversationSendAccessError) {
+      return apiError(403, "forbidden", err.message);
     }
     if (err instanceof MediaValidationError) {
       return apiError(

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionOrNull } from "@/lib/auth/session";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import { todayInTz } from "@/lib/time/slots";
 import { getBranding } from "@/server/branding";
 import { agendaEnabled } from "@/server/agenda/flag";
@@ -21,6 +22,7 @@ export default async function ResultsPage() {
   // resuelve primero.
   const session = await getSessionOrNull();
   if (!session) redirect("/login");
+  if (!hasPermission(session.role, PERMISSIONS.RESULTS_VIEW)) redirect("/inbox");
   const [branding, timezone] = await Promise.all([
     getBranding(session.organizationId),
     businessTimezone(session.organizationId),

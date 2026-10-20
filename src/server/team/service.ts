@@ -4,10 +4,12 @@ import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import {
   DEFAULT_WEEKLY_SCHEDULE,
+  assignableRoleSchema,
   evaluateOperatorAvailability,
   memberStatusSchema,
   weeklyScheduleSchema,
   type MemberStatus,
+  type AssignableRole,
   type WeeklyShift,
 } from "@/lib/team";
 import { rebalanceMemberAssignments } from "@/server/assignments/service";
@@ -62,7 +64,9 @@ export async function createTeamMembership(input: {
   organizationId: string;
   actorUserId: string;
   userId: string;
+  role: AssignableRole;
 }): Promise<boolean> {
+  const role = assignableRoleSchema.parse(input.role);
   return getDb().transaction(async (tx) => {
     const inserted = await tx
       .insert(schema.member)
@@ -70,7 +74,7 @@ export async function createTeamMembership(input: {
         id: newId("member"),
         organizationId: input.organizationId,
         userId: input.userId,
-        role: "member",
+        role,
       })
       .onConflictDoNothing()
       .returning({ id: schema.member.id });
@@ -84,6 +88,7 @@ export async function createTeamMembership(input: {
       action: "member_created",
       before: null,
       after: {
+        role,
         status: "enabled",
         weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
       },
@@ -96,10 +101,12 @@ export async function updateMemberSettings(input: {
   organizationId: string;
   actorUserId: string;
   memberId: string;
+  role: AssignableRole;
   status: MemberStatus;
   weeklySchedule: WeeklyShift[];
 }) {
   const status = memberStatusSchema.parse(input.status);
+  const role = assignableRoleSchema.parse(input.role);
   const weeklySchedule = weeklyScheduleSchema.parse(input.weeklySchedule);
   const updated = await getDb().transaction(async (tx) => {
     // Coordina suspensión/cambio de turno con selección y reasignación.
@@ -150,10 +157,11 @@ export async function updateMemberSettings(input: {
       );
     }
     const before = {
+      role: current.role,
       status: memberStatusSchema.parse(current.status),
       weeklySchedule: weeklyScheduleSchema.parse(current.weeklySchedule),
     };
-    const after = { status, weeklySchedule };
+    const after = { role, status, weeklySchedule };
     await tx
       .update(schema.member)
       .set(after)
@@ -168,11 +176,14 @@ export async function updateMemberSettings(input: {
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
       targetMemberId: input.memberId,
-      action: "member_settings_updated",
+      action:
+        current.role === role
+          ? "member_settings_updated"
+          : "member_role_updated",
       before,
       after,
     });
-    return { ...after, role: current.role };
+    return after;
   });
   const availability = evaluateOperatorAvailability({
     role: updated.role,
@@ -187,5 +198,9 @@ export async function updateMemberSettings(input: {
       reason: updated.status === "suspended" ? "suspended" : "shift_ended",
     });
   }
-  return { status: updated.status, weeklySchedule: updated.weeklySchedule };
+  return {
+    role: updated.role,
+    status: updated.status,
+    weeklySchedule: updated.weeklySchedule,
+  };
 }

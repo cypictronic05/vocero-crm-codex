@@ -5,6 +5,8 @@ export const TEAM_TIME_ZONE = "America/Bogota";
 
 export const memberStatusSchema = z.enum(["enabled", "suspended"]);
 export type MemberStatus = z.infer<typeof memberStatusSchema>;
+export const assignableRoleSchema = z.enum(["member", "supervisor"]);
+export type AssignableRole = z.infer<typeof assignableRoleSchema>;
 
 export const shiftSchema = z
   .object({
@@ -118,4 +120,8 @@ export function evaluateOperatorAvailability(input: {
 
 export function canManageTeam(role: string | null | undefined): boolean {
   return hasPermission(role, PERMISSIONS.TEAM_MANAGE);
+}
+
+export function canViewTeam(role: string | null | undefined): boolean {
+  return hasPermission(role, PERMISSIONS.TEAM_VIEW);
 }

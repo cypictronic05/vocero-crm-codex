@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiError, parseBody, withPermission } from "@/lib/api";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 import {
+  assignableRoleSchema,
   memberStatusSchema,
   weeklyScheduleSchema,
 } from "@/lib/team";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ memberId: string }> };
 
 const updateSchema = z.object({
+  role: assignableRoleSchema,
   status: memberStatusSchema,
   weeklySchedule: weeklyScheduleSchema,
 });

@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { pickLeastLoadedMember } from "@/lib/assignment";
-import { canAccessAssignedConversation } from "@/server/assignments/access";
+import {
+  canAccessAssignedConversation,
+  canViewAllConversations,
+} from "@/server/assignments/access";
 
 describe("selección de responsable", () => {
   const candidates = [
@@ -30,9 +33,13 @@ describe("selección de responsable", () => {
 });
 
 describe("autorización por responsable", () => {
-  const owner = { role: "owner", memberId: "mem_owner" };
-  const assigned = { role: "member", memberId: "mem_a" };
-  const other = { role: "member", memberId: "mem_b" };
+  const owner = { role: "owner", memberId: "mem_owner" } as const;
+  const assigned = { role: "member", memberId: "mem_a" } as const;
+  const other = { role: "member", memberId: "mem_b" } as const;
+  const supervisor = {
+    role: "supervisor",
+    memberId: "mem_supervisor",
+  } as const;
 
   it("el propietario recupera todo y el miembro solo lo propio", () => {
     expect(canAccessAssignedConversation(owner, null)).toBe(true);
@@ -40,6 +47,9 @@ describe("autorización por responsable", () => {
     expect(canAccessAssignedConversation(assigned, "mem_a")).toBe(true);
     expect(canAccessAssignedConversation(other, "mem_a")).toBe(false);
     expect(canAccessAssignedConversation(assigned, null)).toBe(false);
+    expect(canViewAllConversations("supervisor")).toBe(true);
+    expect(canAccessAssignedConversation(supervisor, "mem_a")).toBe(false);
+    expect(canAccessAssignedConversation(supervisor, "mem_supervisor")).toBe(true);
   });
 
   it("todas las superficies humanas aplican la guarda servidor", () => {
@@ -80,6 +90,7 @@ describe("integridad transaccional y migración", () => {
     expect(service).toContain("assignment-org:");
     expect(service).toContain("conversation:");
     expect(service).toContain("conversationAssignmentEvent");
+    expect(service).toContain('member.role === "member"');
     const access = readFileSync("src/server/assignments/access.ts", "utf8");
     expect(access).toContain("await assertOperatorCanSend(session)");
     const team = readFileSync("src/server/team/service.ts", "utf8");

@@ -1,5 +1,6 @@
 import { and, eq, exists, isNull, or } from "drizzle-orm";
 import type { SessionContext } from "@/lib/auth/session";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import { getDb, getSql, schema } from "@/lib/db";
 import { assertOperatorCanSend } from "@/server/team/availability";
 
@@ -10,6 +11,13 @@ export class ConversationAccessError extends Error {
   }
 }
 
+export class ConversationSendAccessError extends Error {
+  constructor(message = "No tienes autorización para responder esta conversación") {
+    super(message);
+    this.name = "ConversationSendAccessError";
+  }
+}
+
 export function canAccessAssignedConversation(
   session: Pick<SessionContext, "role" | "memberId">,
   assignedMemberId: string | null
@@ -17,15 +25,21 @@ export function canAccessAssignedConversation(
   return session.role === "owner" || assignedMemberId === session.memberId;
 }
 
+export function canViewAllConversations(
+  role: SessionContext["role"] | string | null | undefined
+): boolean {
+  return hasPermission(role, PERMISSIONS.CONVERSATIONS_VIEW_ALL);
+}
+
 export function conversationScope(session: SessionContext) {
-  return session.role === "owner"
+  return canViewAllConversations(session.role)
     ? undefined
     : eq(schema.conversation.assignedMemberId, session.memberId);
 }
 
 /** Contactos visibles para un miembro: solo los de una conversación propia. */
 export function contactScope(session: SessionContext) {
-  if (session.role === "owner") return undefined;
+  if (canViewAllConversations(session.role)) return undefined;
   return exists(
     getDb()
       .select({ id: schema.conversation.id })
@@ -43,7 +57,7 @@ export function contactScope(session: SessionContext) {
 
 /** Leads visibles/editables para un miembro: los del contacto de su hilo. */
 export function leadScope(session: SessionContext) {
-  if (session.role === "owner") return undefined;
+  if (canViewAllConversations(session.role)) return undefined;
   return exists(
     getDb()
       .select({ id: schema.conversation.id })
@@ -65,7 +79,7 @@ export function leadScope(session: SessionContext) {
  * sin conversationId, una conversación del mismo contacto).
  */
 export function bookingScope(session: SessionContext) {
-  if (session.role === "owner") return undefined;
+  if (canViewAllConversations(session.role)) return undefined;
   return or(
     eq(schema.booking.kind, "block"),
     exists(
@@ -115,6 +129,35 @@ export async function assertConversationAccess(
   if (!(await canAccessConversation(session, conversationId))) {
     // 404 evita confirmar que el identificador de otra trabajadora existe.
     throw new ConversationAccessError();
+  }
+}
+
+export async function canSendToConversation(
+  session: SessionContext,
+  conversationId: string
+): Promise<boolean> {
+  const rows = await getDb()
+    .select({ assignedMemberId: schema.conversation.assignedMemberId })
+    .from(schema.conversation)
+    .where(
+      and(
+        eq(schema.conversation.organizationId, session.organizationId),
+        eq(schema.conversation.id, conversationId)
+      )
+    )
+    .limit(1);
+  const conversation = rows[0];
+  return conversation
+    ? canAccessAssignedConversation(session, conversation.assignedMemberId)
+    : false;
+}
+
+export async function assertConversationSendAccess(
+  session: SessionContext,
+  conversationId: string
+): Promise<void> {
+  if (!(await canSendToConversation(session, conversationId))) {
+    throw new ConversationSendAccessError();
   }
 }
 
@@ -176,7 +219,7 @@ export async function canAccessMediaAsset(
   session: SessionContext,
   assetId: string
 ): Promise<boolean> {
-  if (session.role === "owner") {
+  if (canViewAllConversations(session.role)) {
     const rows = await getDb()
       .select({ id: schema.mediaAsset.id })
       .from(schema.mediaAsset)
@@ -266,7 +309,7 @@ export async function withConversationSendLock<T>(
     // Revalidación dentro del mismo lock: una suspensión o fin de turno que
     // compita con el request no puede dejar pasar un último mensaje.
     await assertOperatorCanSend(session);
-    await assertConversationAccess(session, conversationId);
+    await assertConversationSendAccess(session, conversationId);
     return await action();
   } finally {
     await client`select pg_advisory_unlock(hashtext(${key}))`;
