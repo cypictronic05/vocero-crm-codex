@@ -1,4 +1,5 @@
-import { apiError, withAuth } from "@/lib/api";
+import { apiError, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import {
   syncTemplates,
   TemplateError,
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
  * el modo agencia: los webhooks de plantillas no siguen el override de
  * callback (limitación de Meta documentada en el README).
  */
-export const POST = withAuth(async (session) => {
+export const POST = withPermission(PERMISSIONS.TEMPLATES_CONFIGURE, async (session) => {
   try {
     const updated = await syncTemplates(session.organizationId);
     return Response.json({ ok: true, updated });

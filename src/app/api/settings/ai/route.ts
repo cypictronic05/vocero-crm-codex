@@ -1,4 +1,5 @@
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { apiError, parseBody, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import {
   AiCredentialError,
   deleteAiCredential,
@@ -19,11 +20,11 @@ export const dynamic = "force-dynamic";
  * mientras no haya nada guardado.
  */
 
-export const GET = withAuth(async (session) => {
+export const GET = withPermission(PERMISSIONS.AI_CONFIGURE, async (session) => {
   return Response.json(await vistaAjustesIa(session.organizationId));
 });
 
-export const PUT = withAuth(async (session, req: Request) => {
+export const PUT = withPermission(PERMISSIONS.AI_CONFIGURE, async (session, req: Request) => {
   const body = await parseBody(req, aiSettingsPutSchema);
   if (!body.ok) return body.response;
 
@@ -44,7 +45,7 @@ export const PUT = withAuth(async (session, req: Request) => {
   return Response.json(await vistaAjustesIa(session.organizationId));
 });
 
-export const DELETE = withAuth(async (session) => {
+export const DELETE = withPermission(PERMISSIONS.AI_CONFIGURE, async (session) => {
   await deleteAiCredential(session.organizationId);
   return Response.json(await vistaAjustesIa(session.organizationId));
 });

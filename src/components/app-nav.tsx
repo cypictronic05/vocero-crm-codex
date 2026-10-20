@@ -9,6 +9,7 @@ import type { ThemePreference } from "@/lib/theme";
 import { cn, initials } from "@/lib/utils";
 import { appNavGroups, isNavActive, SETTINGS_ITEM, type NavItem } from "@/lib/nav";
 import { signOut } from "@/lib/auth/client";
+import { canConfigure } from "@/lib/auth/roles";
 import { useEvents } from "@/components/use-events";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandTile } from "@/components/brand-mark";
@@ -178,7 +179,7 @@ export function AppNav({
       <div className="flex-1" />
 
       {/* Ajustes va abajo, solo: no es trabajo del día. */}
-      {renderItem(SETTINGS_ITEM)}
+      {canConfigure(role) && renderItem(SETTINGS_ITEM)}
 
       <div className="mt-1 flex items-center gap-2.5 rounded-sm px-2.5 py-2 hover:bg-accent">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-bold text-brand-text">

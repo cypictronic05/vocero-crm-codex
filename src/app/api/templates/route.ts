@@ -1,6 +1,7 @@
 import { desc } from "drizzle-orm";
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { apiError, parseBody, withAuth, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isTemplateLanguage } from "@/lib/template-languages";
@@ -35,7 +36,7 @@ const createSchema = z.object({
   examples: z.array(z.string().trim().max(200)).max(10).optional(),
 });
 
-export const POST = withAuth(async (session, req: Request) => {
+export const POST = withPermission(PERMISSIONS.TEMPLATES_CONFIGURE, async (session, req: Request) => {
   const body = await parseBody(req, createSchema);
   if (!body.ok) return body.response;
 

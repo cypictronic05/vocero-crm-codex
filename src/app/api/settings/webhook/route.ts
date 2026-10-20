@@ -1,4 +1,5 @@
-import { apiError, withAuth } from "@/lib/api";
+import { apiError, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import { getEnv } from "@/lib/env";
 import { isChannelEnabled } from "@/server/channels/enabled";
 import { registerWebhookForNumber } from "@/server/whatsapp/connect";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
  * viajan las tres URLs y la pantalla de cada canal enseña la suya. Las de un
  * canal apagado van en null: no existen en esta instancia (ADR-001).
  */
-export const GET = withAuth(async () => {
+export const GET = withPermission(PERMISSIONS.CHANNELS_CONFIGURE, async () => {
   const env = getEnv();
   const url = webhookUrl("wa");
   return Response.json({
@@ -37,7 +38,7 @@ export const GET = withAuth(async () => {
  * Guardar ya lo hace; esto es para las conexiones anteriores a ese cambio y
  * para reintentar si Meta falló, sin volver a pegar el token.
  */
-export const POST = withAuth(async (session) => {
+export const POST = withPermission(PERMISSIONS.CHANNELS_CONFIGURE, async (session) => {
   const creds = await getCredentialsByOrg(session.organizationId);
   if (!creds) {
     return apiError(

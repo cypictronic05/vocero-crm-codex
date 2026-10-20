@@ -1,14 +1,16 @@
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
+
 /**
  * Quién puede CONFIGURAR la instancia: conectar el número, pegar la llave de
- * IA, escribir el agente, encenderlo. En la raíz son dos roles: el `owner`
- * aprovisionado por consola o bootstrap controlado y el `admin` que Better Auth
- * conoce (hoy nadie lo asigna, pero es un rol de configuración y no de
- * operación). Un `member` del equipo atiende la Bandeja: no puede hacer
- * ninguno de los pasos de la guía de inicio, así que no se le enseña.
+ * IA, escribir el agente, encenderlo. En esta instancia solo el `owner`
+ * aprovisionado por bootstrap controlado puede hacerlo. Un `member` atiende la
+ * Bandeja y no recibe permisos implícitos por conocer una URL. Las capacidades
+ * granulares viven en `permissions.ts` para añadir después un supervisor sin
+ * convertirlo en propietario.
  *
  * Vive en `lib/` porque lo consultan los dos lados: el menú (cliente) y la
  * redirección de la raíz (servidor).
  */
 export function canConfigure(role: string | null | undefined): boolean {
-  return role === "owner" || role === "admin";
+  return hasPermission(role, PERMISSIONS.ORGANIZATION_CONFIGURE);
 }

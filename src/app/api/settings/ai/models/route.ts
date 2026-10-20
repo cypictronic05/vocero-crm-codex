@@ -1,4 +1,5 @@
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { apiError, parseBody, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import { listModels } from "@/lib/ai/probe";
 import {
   aiModelsSchema,
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
  * guardada). Un proveedor que no publica la lista no es un error: se dice
  * (`soportado: false`) y el modelo se escribe a mano.
  */
-export const POST = withAuth(async (session, req: Request) => {
+export const POST = withPermission(PERMISSIONS.AI_CONFIGURE, async (session, req: Request) => {
   const body = await parseBody(req, aiModelsSchema);
   if (!body.ok) return body.response;
 

@@ -1,5 +1,6 @@
 import { asc, eq } from "drizzle-orm";
-import { apiError, withAuth } from "@/lib/api";
+import { apiError, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { PERSONA_LABELS } from "@/server/lab/personas";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
-export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
+export const GET = withPermission(PERMISSIONS.LAB_MANAGE, async (session, _req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const db = getDb();
   const runs = await db

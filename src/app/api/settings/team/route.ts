@@ -1,15 +1,15 @@
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { apiError, parseBody, withPermission } from "@/lib/api";
 import { getAuth, runInternalSignup } from "@/lib/auth";
-import { canManageTeam } from "@/lib/team";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import { createTeamMembership, listTeamMembers } from "@/server/team/service";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withAuth(async (session) => {
+export const GET = withPermission(PERMISSIONS.TEAM_MANAGE, async (session) => {
   return Response.json({
     members: await listTeamMembers(session.organizationId),
-    canManage: canManageTeam(session.role),
+    canManage: true,
   });
 });
 
@@ -20,10 +20,7 @@ const createSchema = z.object({
 });
 
 /** Alta de cuenta de equipo (owner only): email + contraseña temporal (FR-061). */
-export const POST = withAuth(async (session, req: Request) => {
-  if (!canManageTeam(session.role)) {
-    return apiError(403, "forbidden", "Solo el propietario puede crear cuentas");
-  }
+export const POST = withPermission(PERMISSIONS.TEAM_MANAGE, async (session, req: Request) => {
   const body = await parseBody(req, createSchema);
   if (!body.ok) return body.response;
 

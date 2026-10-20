@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
-import { canManageTeam } from "@/lib/team";
+import { apiError, parseBody, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import {
   AssignmentError,
   setConversationAssignment,
@@ -12,14 +12,7 @@ type Params = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({ memberId: z.string().min(1).nullable() });
 
-export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
-  if (!canManageTeam(session.role)) {
-    return apiError(
-      403,
-      "forbidden",
-      "Solo el propietario puede asignar conversaciones"
-    );
-  }
+export const PATCH = withPermission(PERMISSIONS.CONVERSATIONS_ASSIGN, async (session, req: Request, ctx: Params) => {
   const body = await parseBody(req, bodySchema);
   if (!body.ok) return body.response;
   const { id } = await ctx.params;

@@ -1,5 +1,6 @@
 import { desc } from "drizzle-orm";
-import { apiError, withAuth } from "@/lib/api";
+import { apiError, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isAiConfiguredFor } from "@/lib/ai/provider";
@@ -8,7 +9,7 @@ import { RunConflictError, startRun } from "@/server/lab/runner";
 export const dynamic = "force-dynamic";
 
 /** Historial de corridas con delta de score vs la anterior (FR-033). */
-export const GET = withAuth(async (session) => {
+export const GET = withPermission(PERMISSIONS.LAB_MANAGE, async (session) => {
   const db = getDb();
   const runs = await db
     .select()
@@ -40,7 +41,7 @@ export const GET = withAuth(async (session) => {
   });
 });
 
-export const POST = withAuth(async (session) => {
+export const POST = withPermission(PERMISSIONS.LAB_MANAGE, async (session) => {
   if (!(await isAiConfiguredFor(session.organizationId))) {
     return apiError(
       409,

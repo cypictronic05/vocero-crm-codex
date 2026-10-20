@@ -44,9 +44,9 @@ beforeEach(() => {
 });
 
 describe("quién configura", () => {
-  it("el propietario y un admin; un miembro del equipo no", () => {
+  it("solo el propietario; roles sin capacidad administrativa no", () => {
     expect(canConfigure("owner")).toBe(true);
-    expect(canConfigure("admin")).toBe(true);
+    expect(canConfigure("admin")).toBe(false);
     expect(canConfigure("member")).toBe(false);
     expect(canConfigure(undefined)).toBe(false);
   });

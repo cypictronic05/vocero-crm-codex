@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requireSession, UnauthorizedError, type SessionContext } from "@/lib/auth/session";
+import { hasPermission, type Permission } from "@/lib/auth/permissions";
 
 /** Respuesta de error estándar de la API interna (contrato api.md). */
 export function apiError(
@@ -34,6 +35,29 @@ export function withAuth<Args extends unknown[]>(
       return apiError(500, "internal", "Error interno");
     }
   };
+}
+
+/**
+ * Autenticación + autorización administrativa para route handlers.
+ *
+ * `withAuth` conserva el 401 cuando no hay sesión. Una sesión válida sin la
+ * capacidad solicitada recibe un 403 genérico que no revela datos ni secretos
+ * de la operación protegida.
+ */
+export function withPermission<Args extends unknown[]>(
+  permission: Permission,
+  handler: (session: SessionContext, ...args: Args) => Promise<Response>
+): (...args: Args) => Promise<Response> {
+  return withAuth(async (session, ...args) => {
+    if (!hasPermission(session.role, permission)) {
+      return apiError(
+        403,
+        "forbidden",
+        "No tienes permiso para realizar esta acción"
+      );
+    }
+    return handler(session, ...args);
+  });
 }
 
 /** Parsea el body JSON con un esquema Zod; inválido → Response 422. */

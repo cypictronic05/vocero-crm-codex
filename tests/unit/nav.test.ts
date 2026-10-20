@@ -16,12 +16,11 @@ const labels = (groups: { items: { label: string }[] }[]) =>
   groups.map((g) => g.items.map((i) => i.label));
 
 describe("barra lateral agrupada", () => {
-  it("con todo apagado y como miembro: Trabajo, Agente y Resultados", () => {
+  it("un miembro solo ve superficies operativas y Resultados", () => {
     const groups = appNavGroups({ role: "member" });
-    expect(groups.map((g) => g.title)).toEqual(["Trabajo", "Agente", undefined]);
+    expect(groups.map((g) => g.title)).toEqual(["Trabajo", undefined]);
     expect(labels(groups)).toEqual([
       ["Bandeja", "Pipeline", "Contactos"],
-      ["Agente", "Laboratorio"],
       ["Resultados"],
     ]);
   });
@@ -37,14 +36,20 @@ describe("barra lateral agrupada", () => {
     expect(trabajo!.items.at(-1)!.href).toBe("/bookings");
   });
 
-  it("la guía de inicio abre el grupo Agente solo para quien configura", () => {
-    for (const role of ["owner", "admin"]) {
-      const agente = appNavGroups({ role })[1]!;
-      expect(agente.items[0]).toMatchObject({ href: "/onboarding", label: "Guía de inicio" });
-    }
-    for (const role of ["member", null, undefined]) {
-      const agente = appNavGroups({ role })[1]!;
-      expect(agente.items.map((i) => i.href)).not.toContain("/onboarding");
+  it("el grupo administrativo del agente existe solo para el propietario", () => {
+    const ownerItems = appNavGroups({ role: "owner" })
+      .flatMap((group) => group.items)
+      .map((item) => item.href);
+    expect(ownerItems).toEqual(
+      expect.arrayContaining(["/onboarding", "/agent", "/lab"])
+    );
+    for (const role of ["admin", "member", null, undefined]) {
+      const hrefs = appNavGroups({ role })
+        .flatMap((group) => group.items)
+        .map((item) => item.href);
+      expect(hrefs).not.toContain("/onboarding");
+      expect(hrefs).not.toContain("/agent");
+      expect(hrefs).not.toContain("/lab");
     }
   });
 

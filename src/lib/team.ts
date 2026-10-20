@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 
 export const TEAM_TIME_ZONE = "America/Bogota";
 
@@ -116,5 +117,5 @@ export function evaluateOperatorAvailability(input: {
 }
 
 export function canManageTeam(role: string | null | undefined): boolean {
-  return role === "owner";
+  return hasPermission(role, PERMISSIONS.TEAM_MANAGE);
 }

@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
-import { apiError, withAuth } from "@/lib/api";
+import { apiError, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import {
   FAVICON_ASSET,
   MAX_FAVICON_BYTES,
@@ -15,10 +16,7 @@ export const dynamic = "force-dynamic";
  * multipart: es un archivo suelto y montar un parser de formulario para eso
  * es trabajo que no compra nada.
  */
-export const PUT = withAuth(async (session, req: Request) => {
-  if (session.role !== "owner") {
-    return apiError(403, "forbidden", "Solo el propietario puede cambiar la marca");
-  }
+export const PUT = withPermission(PERMISSIONS.ORGANIZATION_CONFIGURE, async (session, req: Request) => {
 
   const buf = new Uint8Array(await req.arrayBuffer());
   if (buf.byteLength === 0) {
@@ -61,10 +59,7 @@ export const PUT = withAuth(async (session, req: Request) => {
 });
 
 /** Quitar el subido y volver al generado de la marca. */
-export const DELETE = withAuth(async (session) => {
-  if (session.role !== "owner") {
-    return apiError(403, "forbidden", "Solo el propietario puede cambiar la marca");
-  }
+export const DELETE = withPermission(PERMISSIONS.ORGANIZATION_CONFIGURE, async (session) => {
 
   const branding = await getBranding(session.organizationId);
   await saveBranding(session.organizationId, { ...branding, favicon: null });

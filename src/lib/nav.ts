@@ -65,19 +65,18 @@ export function appNavGroups({
   // sección aparte.
   if (agenda) trabajo.push({ href: "/bookings", label: "Citas", icon: CalendarDays });
 
-  const agente: NavItem[] = [];
-  // Un miembro del equipo no puede hacer ninguno de los pasos de la guía.
-  if (canConfigure(role)) {
-    agente.push({ href: "/onboarding", label: "Guía de inicio", icon: ListChecks });
-  }
-  agente.push(
-    { href: "/agent", label: "Agente", icon: Sparkles },
-    { href: "/lab", label: "Laboratorio", icon: FlaskConical }
-  );
+  const configura = canConfigure(role);
+  const agente: NavItem[] = configura
+    ? [
+        { href: "/onboarding", label: "Guía de inicio", icon: ListChecks },
+        { href: "/agent", label: "Agente", icon: Sparkles },
+        { href: "/lab", label: "Laboratorio", icon: FlaskConical },
+      ]
+    : [];
 
   return [
     { title: "Trabajo", items: trabajo },
-    { title: "Agente", items: agente },
+    ...(agente.length > 0 ? [{ title: "Agente", items: agente }] : []),
     // 019 — Se mide al final: primero se atiende y se organiza.
     { items: [{ href: "/results", label: "Resultados", icon: ChartColumn }] },
   ];

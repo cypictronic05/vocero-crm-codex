@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { apiError, parseBody, withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import {
-  canManageTeam,
   memberStatusSchema,
   weeklyScheduleSchema,
 } from "@/lib/team";
@@ -16,14 +16,7 @@ const updateSchema = z.object({
   weeklySchedule: weeklyScheduleSchema,
 });
 
-export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
-  if (!canManageTeam(session.role)) {
-    return apiError(
-      403,
-      "forbidden",
-      "Solo el propietario puede modificar turnos y estados"
-    );
-  }
+export const PATCH = withPermission(PERMISSIONS.TEAM_MANAGE, async (session, req: Request, ctx: Params) => {
   const body = await parseBody(req, updateSchema);
   if (!body.ok) return body.response;
   const { memberId } = await ctx.params;

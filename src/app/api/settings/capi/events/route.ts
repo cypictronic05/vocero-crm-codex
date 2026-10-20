@@ -1,4 +1,5 @@
-import { withAuth } from "@/lib/api";
+import { withPermission } from "@/lib/api";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 import {
   atribucionDisabledResponse,
   atribucionEnabled,
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
  * llegando algo a Meta y, si no, por qué?". Sin acciones: este endpoint jamás
  * escribe.
  */
-export const GET = withAuth(async (session, req: Request) => {
+export const GET = withPermission(PERMISSIONS.INTEGRATIONS_CONFIGURE, async (session, req: Request) => {
   if (!atribucionEnabled()) return atribucionDisabledResponse();
   const raw = new URL(req.url).searchParams.get("limit");
   const parsed = raw ? Number.parseInt(raw, 10) : NaN;
