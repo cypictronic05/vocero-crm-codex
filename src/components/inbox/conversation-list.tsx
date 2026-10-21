@@ -7,6 +7,10 @@ import { etiquetaDeOrigen, titularDeOrigen } from "@/lib/anuncios";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { matchesQuery } from "@/lib/search";
+import {
+  estaRecienAsignada,
+  ordenarConversacionesBandeja,
+} from "@/lib/conversation-order";
 import { cn } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
@@ -75,6 +79,7 @@ export function ConversationList({
   conversations: conversationsProp,
   channels,
   canFilterQueue,
+  currentMemberId,
   selectedId,
   onSelect,
   onSeeded,
@@ -84,6 +89,8 @@ export function ConversationList({
   channels: readonly Channel[];
   /** Propietario y supervisora pueden inspeccionar la cola sin asignar. */
   canFilterQueue: boolean;
+  /** Permite marcar una asignación reciente solo para su responsable. */
+  currentMemberId: string;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSeeded: () => void;
@@ -109,7 +116,9 @@ export function ConversationList({
   }, []);
 
   const loading = conversationsProp === null;
-  const conversations = conversationsProp ?? [];
+  const conversations = conversationsProp
+    ? ordenarConversacionesBandeja(conversationsProp)
+    : [];
   // Solo NOMBRE y TELÉFONO, como cualquier filtro de contactos. Antes también
   // miraba el preview, y como el agente nombra al dueño en sus propios
   // mensajes, buscar ese nombre devolvía media bandeja. Encima era una
@@ -371,6 +380,11 @@ export function ConversationList({
                           <span className="inline-flex items-center gap-1 rounded-full border border-warning-soft bg-warning-tint px-2 py-0.5 text-[11px] text-warning-text">
                             <UserRound className="h-3 w-3" strokeWidth={1.7} />
                             Atención humana
+                          </span>
+                        )}
+                        {estaRecienAsignada(c, currentMemberId) && (
+                          <span className="inline-flex rounded-full border border-brand-soft bg-brand-veil px-2 py-0.5 text-[11px] font-medium text-brand-ink">
+                            Recién asignada
                           </span>
                         )}
                         {c.assignee ? (

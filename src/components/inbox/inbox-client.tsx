@@ -6,6 +6,7 @@ import { ChevronLeft, PanelRight } from "lucide-react";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import type { ConversationDto, MessageDto } from "@/lib/types";
+import { ordenarConversacionesBandeja } from "@/lib/conversation-order";
 import type { AppRole } from "@/lib/auth/permissions";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
@@ -84,6 +85,7 @@ export function InboxClient({
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
   const lastFetchRef = useRef<string | null>(null);
+  const conversationFetchSequence = useRef(0);
   const tmpSeq = useRef(0);
   // Los envíos salen en fila: el compositor ya no espera, pero WhatsApp debe
   // recibir "hola" antes que el renglón siguiente. Sin esta cadena, dos POST
@@ -91,10 +93,14 @@ export function InboxClient({
   const sendQueue = useRef<Promise<unknown>>(Promise.resolve());
 
   const refetchConversations = useCallback(async () => {
+    const sequence = ++conversationFetchSequence.current;
     const res = await fetch("/api/conversations").catch(() => null);
     if (!res?.ok) return;
     const data = (await res.json()) as { conversations: ConversationDto[] };
-    setConversations(data.conversations);
+    // Un refetch lento anterior no puede deshacer el orden producido por un
+    // mensaje o una reasignación SSE posterior.
+    if (sequence !== conversationFetchSequence.current) return;
+    setConversations(ordenarConversacionesBandeja(data.conversations));
     lastFetchRef.current = new Date().toISOString();
   }, []);
 
@@ -382,6 +388,7 @@ export function InboxClient({
           conversations={conversations}
           channels={channels}
           canFilterQueue={canAssign}
+          currentMemberId={memberId}
           selectedId={selectedId}
           onSelect={select}
           onSeeded={() => void refetchConversations()}

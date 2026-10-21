@@ -9,6 +9,13 @@ export type ConversationDto = {
   contact: { id: string; name: string; phone: string | null };
   assignee: { id: string; name: string } | null;
   assignmentVersion: number;
+  /** Cuándo cambió por última vez el responsable o volvió a cola. */
+  assignedAt: string | null;
+  /**
+   * Clave efectiva de orden: actividad de mensaje o asignación vigente.
+   * No reutiliza `updatedAt`, porque leer o editar detalles no debe mover filas.
+   */
+  inboxOrderAt: string;
   stageName: string | null;
   aiEnabled: boolean;
   handoffAt: string | null;

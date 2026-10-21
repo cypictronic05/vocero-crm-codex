@@ -4,6 +4,7 @@ import { scoped } from "@/lib/db/tenant";
 import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
 import type { ConversationDto } from "@/lib/types";
 import type { SessionContext } from "@/lib/auth/session";
+import { calcularActividadBandeja } from "@/lib/conversation-order";
 import { conversationScope } from "@/server/assignments/access";
 
 /**
@@ -59,6 +60,20 @@ export async function listConversations(
     where l.contact_id = ${schema.contact.id}
     limit 1
   )`;
+  // Una reasignación vigente compite con el último mensaje. Al volver a cola,
+  // assigned_at se ignora para conservar el orden histórico de la cola general.
+  const inboxOrderSql = sql<Date>`(
+    case
+      when ${schema.conversation.assignedMemberId} is not null then greatest(
+        coalesce(
+          ${schema.conversation.lastMessageAt},
+          ${schema.conversation.createdAt}
+        ),
+        coalesce(${schema.conversation.assignedAt}, ${schema.conversation.createdAt})
+      )
+      else coalesce(${schema.conversation.lastMessageAt}, ${schema.conversation.createdAt})
+    end
+  )`;
 
   const rows = await db
     .select({
@@ -90,7 +105,7 @@ export async function listConversations(
         since ? gt(schema.conversation.updatedAt, since) : undefined
       )
     )
-    .orderBy(desc(sql`coalesce(${schema.conversation.lastMessageAt}, ${schema.conversation.createdAt})`));
+    .orderBy(desc(inboxOrderSql), desc(schema.conversation.id));
 
   return rows.map((r) =>
     serializeConversation(
@@ -188,6 +203,13 @@ export function serializeConversation(
     contact: { id: contact.id, name: contact.name, phone: contact.phone },
     assignee,
     assignmentVersion: c.assignmentVersion,
+    assignedAt: c.assignedAt?.toISOString() ?? null,
+    inboxOrderAt: calcularActividadBandeja({
+      assignedMemberId: c.assignedMemberId,
+      assignedAt: c.assignedAt,
+      lastMessageAt: c.lastMessageAt,
+      createdAt: c.createdAt,
+    }).toISOString(),
     stageName,
     aiEnabled: c.aiEnabled,
     handoffAt: c.handoffAt?.toISOString() ?? null,
