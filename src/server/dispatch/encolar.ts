@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { encolarDespacho } from "@/server/dispatch/outbox";
 import { iniciarWorker, programarTanda } from "@/server/dispatch/worker";
+import { conversationAllowsAi } from "@/lib/human-attention";
 
 /**
  * 021 — El enganche de la ingesta: un mensaje entrante real ya está en la
@@ -22,6 +23,8 @@ export async function despacharAlCerebro(
       .select({
         aiEnabled: schema.conversation.aiEnabled,
         handoffAt: schema.conversation.handoffAt,
+        handoffReason: schema.conversation.handoffReason,
+        humanInterventionAt: schema.conversation.humanInterventionAt,
         isTest: schema.conversation.isTest,
       })
       .from(schema.conversation)
@@ -39,7 +42,7 @@ export async function despacharAlCerebro(
     // cualquier cerebro sin tener que acordarse. El Laboratorio no pasa por la
     // ingesta, pero una conversación de prueba no sale del CRM por ningún
     // camino.
-    if (!conv.aiEnabled || conv.handoffAt || conv.isTest) return;
+    if (!conversationAllowsAi(conv) || conv.isTest) return;
 
     // 025 — El despacho anota qué entrante lo provoca: es lo que le debe al
     // cerebro, aunque después la conversación tenga una respuesta.

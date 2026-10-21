@@ -20,6 +20,14 @@ export type ConversationDto = {
   aiEnabled: boolean;
   handoffAt: string | null;
   handoffReason: string | null;
+  humanInterventionAt: string | null;
+  humanAttention: "none" | "pending" | "active";
+  aiSchedule: {
+    startMinute: number;
+    endMinute: number;
+    timeZone: string;
+    active: boolean;
+  };
   lastInboundAt: string | null;
   lastMessageAt: string | null;
   unreadCount: number;

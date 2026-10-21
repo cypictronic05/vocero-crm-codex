@@ -5,6 +5,9 @@ import { apiError, parseBody } from "@/lib/api";
 import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
 import { getCredentialsByOrg } from "@/server/whatsapp/credentials";
 import { graphRequest } from "@/lib/meta/client";
+import { isAiScheduleActive } from "@/lib/ai-schedule";
+import { conversationAllowsAi } from "@/lib/human-attention";
+import { scheduleFromOrganization } from "@/server/ai/schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +34,22 @@ export async function POST(req: Request) {
 
   const db = getDb();
   const convs = await db
-    .select()
+    .select({
+      id: schema.conversation.id,
+      isTest: schema.conversation.isTest,
+      aiEnabled: schema.conversation.aiEnabled,
+      handoffAt: schema.conversation.handoffAt,
+      handoffReason: schema.conversation.handoffReason,
+      humanInterventionAt: schema.conversation.humanInterventionAt,
+      aiScheduleStartMinute: schema.organization.aiScheduleStartMinute,
+      aiScheduleEndMinute: schema.organization.aiScheduleEndMinute,
+      aiScheduleTimeZone: schema.organization.aiScheduleTimeZone,
+    })
     .from(schema.conversation)
+    .innerJoin(
+      schema.organization,
+      eq(schema.organization.id, schema.conversation.organizationId)
+    )
     .where(
       and(
         eq(schema.conversation.organizationId, organizationId),
@@ -46,7 +63,10 @@ export async function POST(req: Request) {
     // Sandbox: jamás toca la API real (guardrail del Laboratorio).
     return Response.json({ ok: false, reason: "sandbox" });
   }
-  if (!conv.aiEnabled || conv.handoffAt) {
+  if (
+    !conversationAllowsAi(conv) ||
+    !isAiScheduleActive(scheduleFromOrganization(conv))
+  ) {
     // Handoff/IA pausada: un humano atiende — "escribiendo…" aquí sería
     // mentirle al cliente. Se omite sin tocar Meta.
     return Response.json({ ok: false, reason: "ai_paused" });

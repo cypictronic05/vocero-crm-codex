@@ -19,7 +19,9 @@ import {
   tomarPendientes,
   type FilaDespacho,
 } from "@/server/dispatch/outbox";
-import { isNightBotActive } from "@/lib/night-bot";
+import { isAiScheduleActive } from "@/lib/ai-schedule";
+import { conversationAllowsAi } from "@/lib/human-attention";
+import { scheduleFromOrganization } from "@/server/ai/schedule";
 
 /**
  * 021 — El worker del despachador.
@@ -170,9 +172,18 @@ async function procesar(fila: FilaDespacho): Promise<void> {
     .select({
       aiEnabled: schema.conversation.aiEnabled,
       handoffAt: schema.conversation.handoffAt,
+      handoffReason: schema.conversation.handoffReason,
+      humanInterventionAt: schema.conversation.humanInterventionAt,
       isTest: schema.conversation.isTest,
+      aiScheduleStartMinute: schema.organization.aiScheduleStartMinute,
+      aiScheduleEndMinute: schema.organization.aiScheduleEndMinute,
+      aiScheduleTimeZone: schema.organization.aiScheduleTimeZone,
     })
     .from(schema.conversation)
+    .innerJoin(
+      schema.organization,
+      eq(schema.organization.id, schema.conversation.organizationId)
+    )
     .where(
       and(
         eq(schema.conversation.id, fila.conversationId),
@@ -184,13 +195,13 @@ async function procesar(fila: FilaDespacho): Promise<void> {
     await descartarDespacho(fila, "la conversación ya no existe");
     return;
   }
-  if (!conv.aiEnabled || conv.handoffAt || conv.isTest) {
+  if (!conversationAllowsAi(conv) || conv.isTest) {
     await descartarDespacho(fila, "la IA se pausó antes de despachar");
     return;
   }
-  // 028 — La fila pudo vencer, reintentarse o sobrevivir un reinicio después
-  // de las 06:00. No es una caída del cerebro: queda para atención humana.
-  if (!isNightBotActive()) {
+  // La fila pudo vencer, reintentarse o sobrevivir un reinicio después del
+  // fin configurado. No es una caída del cerebro: queda para atención humana.
+  if (!isAiScheduleActive(scheduleFromOrganization(conv))) {
     await descartarDespacho(fila, "terminó el turno nocturno");
     return;
   }

@@ -68,6 +68,7 @@ export function buildAgentSystemPrompt(input: {
       "Reglas duras:",
       "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
       "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
+      "- NUNCA inventes ni confirmes tasas, disponibilidad de fondos, estado de operaciones, pagos o comprobantes. Si requieren validar datos actuales o una transacción concreta → handoff.",
       "- Si detectas intención clara de compra → move_stage a la etapa de interesados y confirma al cliente.",
       "- NUNCA confirmes un pago, transferencia o comprobante basándote en una imagen o documento; esos adjuntos requieren revisión humana.",
       ...agendaRules,

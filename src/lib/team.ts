@@ -94,7 +94,7 @@ export function isWithinWeeklySchedule(
 
 export type OperatorAvailability = {
   canSend: boolean;
-  reason: "owner" | "available" | "suspended" | "outside_shift";
+  reason: "owner" | "supervisor" | "available" | "suspended" | "outside_shift";
   timeZone: typeof TEAM_TIME_ZONE;
 };
 
@@ -109,6 +109,9 @@ export function evaluateOperatorAvailability(input: {
   }
   if (input.status === "suspended") {
     return { canSend: false, reason: "suspended", timeZone: TEAM_TIME_ZONE };
+  }
+  if (input.role === "supervisor") {
+    return { canSend: true, reason: "supervisor", timeZone: TEAM_TIME_ZONE };
   }
   const canSend = isWithinWeeklySchedule(input.schedule, input.at);
   return {

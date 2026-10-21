@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/api";
@@ -55,19 +55,27 @@ export async function POST(req: Request) {
   if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
 
   if (!conv.handoffAt) {
-    await db
+    const updated = await db
       .update(schema.conversation)
       .set({
-        aiEnabled: false,
         handoffAt: new Date(),
         handoffReason: toHandoffReason(body.data.reason),
         updatedAt: new Date(),
       })
-      .where(eq(schema.conversation.id, conv.id));
-    publish(organizationId, {
-      type: "conversation.updated",
-      data: { conversation: { id: conv.id } },
-    });
+      .where(
+        and(
+          eq(schema.conversation.organizationId, organizationId),
+          eq(schema.conversation.id, conv.id),
+          isNull(schema.conversation.handoffAt)
+        )
+      )
+      .returning({ id: schema.conversation.id });
+    if (updated[0]) {
+      publish(organizationId, {
+        type: "conversation.updated",
+        data: { conversation: { id: conv.id } },
+      });
+    }
   }
   return Response.json({ ok: true });
 }

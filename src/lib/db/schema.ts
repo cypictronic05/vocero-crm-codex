@@ -86,6 +86,16 @@ export const organization = pgTable("organization", {
   assignmentMode: text("assignment_mode", { enum: ASSIGNMENT_MODES })
     .notNull()
     .default("automatic"),
+  /** 032 — Ventana diaria de IA, expresada como hora de pared de la organización. */
+  aiScheduleStartMinute: integer("ai_schedule_start_minute")
+    .notNull()
+    .default(22 * 60),
+  aiScheduleEndMinute: integer("ai_schedule_end_minute")
+    .notNull()
+    .default(6 * 60),
+  aiScheduleTimeZone: text("ai_schedule_time_zone")
+    .notNull()
+    .default("America/Bogota"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   metadata: text("metadata"),
 });
@@ -416,6 +426,12 @@ export const conversation = pgTable(
         "manual_reply",
       ],
     }),
+    /** 032 — Respuesta humana efectiva; asignar por sí solo no la establece. */
+    humanInterventionAt: timestamp("human_intervention_at"),
+    humanInterventionByMemberId: text("human_intervention_by_member_id").references(
+      () => member.id,
+      { onDelete: "set null" }
+    ),
     lastInboundAt: timestamp("last_inbound_at"),
     lastMessageAt: timestamp("last_message_at"),
     unreadCount: integer("unread_count").notNull().default(0),

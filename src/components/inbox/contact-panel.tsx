@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Cable, Check, ChevronRight, Sparkles, UserRound } from "lucide-react";
+import { AlertTriangle, Cable, Check, ChevronRight, MoonStar, Sparkles, UserRound } from "lucide-react";
 import {
   externalAnswerLabel,
   externalAnswering,
@@ -108,7 +108,13 @@ export function ContactPanel({
   // El control es la FUENTE DE VERDAD de la conversación: el agente in-process
   // y cualquier cerebro externo conectado por /api/bot/* respetan este flag,
   // así que el toggle opera siempre — `agentReady` solo matiza el texto.
-  const aiActive = conversation.aiEnabled && !conversation.handoffAt;
+  const clientHandoffPending =
+    conversation.humanAttention === "pending" &&
+    conversation.handoffReason === "cliente";
+  const aiActive =
+    conversation.aiEnabled &&
+    conversation.humanAttention !== "active" &&
+    (!conversation.handoffAt || clientHandoffPending);
 
   // Aparte del resto: consultar el /health del cerebro externo puede tardar
   // hasta 2 s, y eso no debe demorar la etapa ni la ficha.
@@ -285,14 +291,13 @@ export function ContactPanel({
             )}
           </div>
 
-          {conversation.handoffAt && (
-            <div className="mt-3 rounded-md border border-warning-soft bg-warning-tint p-3">
-              <p className="flex items-center gap-1.5 text-[13px] font-medium text-warning-text">
-                <UserRound className="h-4 w-4" strokeWidth={1.7} /> Atención humana
+          {conversation.humanAttention === "active" ? (
+            <div className="mt-3 rounded-md border border-danger-soft bg-danger-tint p-3">
+              <p className="flex items-center gap-1.5 text-[13px] font-medium text-danger-text">
+                <UserRound className="h-4 w-4" strokeWidth={1.7} /> Atención humana en curso
               </p>
-              <p className="mt-1 text-xs text-warning-text opacity-80">
-                {HANDOFF_LABELS[conversation.handoffReason ?? ""] ??
-                  "La IA está en pausa en esta conversación."}
+              <p className="mt-1 text-xs text-danger-text">
+                IA pausada por intervención humana.
               </p>
               <Button
                 size="sm"
@@ -303,20 +308,56 @@ export function ContactPanel({
                 Reactivar IA
               </Button>
             </div>
-          )}
+          ) : conversation.humanAttention === "pending" ? (
+            <div className="mt-3 rounded-md border border-warning-soft bg-warning-tint p-3">
+              <p className="flex items-center gap-1.5 text-[13px] font-medium text-warning-text">
+                <UserRound className="h-4 w-4" strokeWidth={1.7} /> Atención humana pendiente
+              </p>
+              <p className="mt-1 text-xs text-warning-text">
+                {HANDOFF_LABELS[conversation.handoffReason ?? ""] ??
+                  "El caso espera revisión del equipo."}
+              </p>
+              {clientHandoffPending && conversation.aiEnabled && (
+                <p className="mt-1 text-xs text-warning-text">
+                  La IA nocturna puede responder información general hasta que una persona intervenga.
+                </p>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2 w-full"
+                onClick={() => void onPatchConversation({ reactivate: true })}
+              >
+                Resolver y reactivar IA
+              </Button>
+            </div>
+          ) : conversation.aiSchedule.active && aiActive ? (
+            <div className="mt-3 rounded-md border border-info-soft bg-info-tint p-3">
+              <p className="flex items-center gap-1.5 text-[13px] font-medium text-info-text">
+                <MoonStar className="h-4 w-4" strokeWidth={1.7} /> IA nocturna activa
+              </p>
+              <p className="mt-1 text-xs text-info-text">
+                Horario {String(Math.floor(conversation.aiSchedule.startMinute / 60)).padStart(2, "0")}:{String(conversation.aiSchedule.startMinute % 60).padStart(2, "0")}–{String(Math.floor(conversation.aiSchedule.endMinute / 60)).padStart(2, "0")}:{String(conversation.aiSchedule.endMinute % 60).padStart(2, "0")} · {conversation.aiSchedule.timeZone}
+              </p>
+            </div>
+          ) : null}
 
           <div className="mt-3 rounded-md border bg-subtle px-3 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[13px] font-medium">IA en esta conversación</p>
                 <p className="text-[11px] text-text-3">
-                  {conversation.handoffAt
-                    ? "En pausa · atención humana"
+                  {conversation.humanAttention === "active"
+                    ? "Pausada por intervención humana"
+                    : conversation.humanAttention === "pending" && !clientHandoffPending
+                      ? "En pausa · revisión humana"
                     : !conversation.aiEnabled
                       ? "En pausa"
+                      : conversation.aiSchedule.active
+                        ? "Respondiendo · horario nocturno"
                       : agentReady || externalActive
-                        ? "Respondiendo"
-                        : "Activada"}
+                        ? "Lista · fuera de horario"
+                        : "Activada · fuera de horario"}
                 </p>
               </div>
               <Switch

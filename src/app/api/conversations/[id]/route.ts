@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { publish } from "@/server/events/bus";
 import { serializeConversation, getConversation, updateConversation } from "@/server/inbox/queries";
+import { getOrganizationAiSchedule } from "@/server/ai/schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
 
   const row = await getConversation(session, id);
   if (row) {
+    const aiSchedule = await getOrganizationAiSchedule(session.organizationId);
     const dto = serializeConversation(
       row.conversation,
       row.contact,
@@ -31,7 +33,8 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
       row.anuncio,
       row.assigneeId && row.assigneeName
         ? { id: row.assigneeId, name: row.assigneeName }
-        : null
+        : null,
+      aiSchedule
     );
     publish(session.organizationId, {
       type: "conversation.updated",

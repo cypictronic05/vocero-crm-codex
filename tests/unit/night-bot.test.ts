@@ -40,11 +40,12 @@ describe("guardas del turno nocturno", () => {
     const pipeline = readFileSync("src/server/ai/pipeline.ts", "utf8");
     const worker = readFileSync("src/server/dispatch/worker.ts", "utf8");
 
-    expect(trigger.indexOf("isNightBotActive(at)")).toBeLessThan(
+    expect(trigger.indexOf("isAiScheduleActive(schedule, at)")).toBeLessThan(
       trigger.indexOf("despachoActivo()")
     );
     expect(pipeline).toContain("!conversation.isTest");
-    expect(pipeline.match(/isNightBotActive/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(pipeline).toContain("withAiConversationSendLock");
+    expect(worker).toContain("isAiScheduleActive(scheduleFromOrganization(conv))");
     expect(worker).toContain('descartarDespacho(fila, "terminó el turno nocturno")');
     expect(readFileSync("src/instrumentation-node.ts", "utf8")).toContain(
       "resumePendingNightTurns"
@@ -56,9 +57,10 @@ describe("guardas del turno nocturno", () => {
       "src/app/api/bot/messages/route.ts",
       "utf8"
     );
-    expect(route).toContain('"outside_bot_shift"');
-    expect(route.indexOf("isNightBotActive()")).toBeLessThan(
-      route.indexOf("await sendText(")
+    expect(route).toContain("AiSendGuardError");
+    expect(route).toContain("withAiConversationSendLock({");
+    expect(route.indexOf("withAiConversationSendLock({")).toBeLessThan(
+      route.indexOf("sendText({")
     );
   });
 });

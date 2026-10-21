@@ -5,6 +5,12 @@ import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
 import { serializeFicha } from "@/server/bot/ficha";
 import { findContactByIdentity } from "@/server/inbox/identity";
 import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
+import { isAiScheduleActive } from "@/lib/ai-schedule";
+import {
+  conversationAllowsAi,
+  humanAttentionState,
+} from "@/lib/human-attention";
+import { getOrganizationAiSchedule } from "@/server/ai/schedule";
 import { citasParaContexto } from "@/server/agenda/context";
 
 export const dynamic = "force-dynamic";
@@ -107,6 +113,8 @@ export async function GET(req: Request) {
     citasParaContexto(organizationId, contact.id),
   ]);
 
+  const aiSchedule = await getOrganizationAiSchedule(organizationId);
+
   return Response.json({
     contact: {
       id: contact.id,
@@ -121,10 +129,13 @@ export async function GET(req: Request) {
     },
     conversation: {
       id: conversation.id,
-      // Una sola verdad para el bot: si hay handoff, la IA está apagada
-      // aunque el flag siga en true.
-      aiEnabled: conversation.aiEnabled && !conversation.handoffAt,
+      // Una sola verdad para el bot: una solicitud del cliente puede seguir
+      // informativa de noche; intervención o handoff de seguridad la pausan.
+      aiEnabled:
+        conversationAllowsAi(conversation) &&
+        isAiScheduleActive(aiSchedule),
       handoffAt: conversation.handoffAt?.toISOString() ?? null,
+      humanAttention: humanAttentionState(conversation),
       windowOpen: isWindowOpen(conversation.lastInboundAt),
       windowRemainingMs: windowRemainingMs(conversation.lastInboundAt),
     },

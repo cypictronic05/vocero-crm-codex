@@ -57,6 +57,26 @@ describe("disponibilidad del equipo en America/Bogota", () => {
     ).toMatchObject({ canSend: true, reason: "owner" });
   });
 
+  it("la supervisora habilitada puede responder 24/7, pero suspendida no", () => {
+    const fueraDelTurno = new Date("2026-10-19T08:00:00Z");
+    expect(
+      evaluateOperatorAvailability({
+        role: "supervisor",
+        status: "enabled",
+        schedule: [],
+        at: fueraDelTurno,
+      })
+    ).toMatchObject({ canSend: true, reason: "supervisor" });
+    expect(
+      evaluateOperatorAvailability({
+        role: "supervisor",
+        status: "suspended",
+        schedule: [],
+        at: fueraDelTurno,
+      })
+    ).toMatchObject({ canSend: false, reason: "suspended" });
+  });
+
   it("rechaza intervalos ambiguos y autoriza cambios solo al owner", () => {
     expect(
       weeklyScheduleSchema.safeParse([

@@ -3,6 +3,7 @@ import type { SessionContext } from "@/lib/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import { getDb, getSql, schema } from "@/lib/db";
 import { assertOperatorCanSend } from "@/server/team/availability";
+import { markHumanIntervention } from "@/server/inbox/human-attention";
 
 export class ConversationAccessError extends Error {
   constructor(message = "Conversación no encontrada") {
@@ -310,7 +311,15 @@ export async function withConversationSendLock<T>(
     // compita con el request no puede dejar pasar un último mensaje.
     await assertOperatorCanSend(session);
     await assertConversationSendAccess(session, conversationId);
-    return await action();
+    const result = await action();
+    // Solo un envío confirmado constituye intervención. Si Meta falla, el
+    // lock se libera sin silenciar una IA que todavía puede atender.
+    await markHumanIntervention({
+      organizationId: session.organizationId,
+      conversationId,
+      memberId: session.memberId,
+    });
+    return result;
   } finally {
     await client`select pg_advisory_unlock(hashtext(${key}))`;
     client.release();

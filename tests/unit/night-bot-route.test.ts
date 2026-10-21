@@ -2,10 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fakes = vi.hoisted(() => ({
   sendText: vi.fn(),
-  conversation: {
-    aiEnabled: true,
-    handoffAt: null as Date | null,
-  },
+  guard: "allow" as "allow" | "outside" | "paused",
 }));
 
 vi.mock("@/server/bot/auth", () => ({
@@ -18,19 +15,29 @@ vi.mock("@/server/inbox/send", async (importOriginal) => {
   return { ...actual, sendText: fakes.sendText };
 });
 
-vi.mock("@/lib/db", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/db")>();
+vi.mock("@/server/ai/eligibility", () => {
+  class AiSendGuardError extends Error {
+    constructor(
+      public readonly code: "not_found" | "ai_paused" | "outside_bot_shift",
+      message: string
+    ) {
+      super(message);
+    }
+  }
   return {
-    ...actual,
-    getDb: () => ({
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            limit: async () => [fakes.conversation],
-          }),
-        }),
-      }),
-    }),
+    AiSendGuardError,
+    withAiConversationSendLock: async (input: { action: () => Promise<unknown> }) => {
+      if (fakes.guard === "outside") {
+        throw new AiSendGuardError(
+          "outside_bot_shift",
+          "La IA atiende de 22:00 a 06:00 en America/Bogota"
+        );
+      }
+      if (fakes.guard === "paused") {
+        throw new AiSendGuardError("ai_paused", "La IA está en pausa en esta conversación");
+      }
+      return input.action();
+    },
   };
 });
 
@@ -49,12 +56,14 @@ describe("POST /api/bot/messages durante el relevo nocturno", () => {
     vi.useFakeTimers();
     fakes.sendText.mockReset();
     fakes.sendText.mockResolvedValue({ messageId: "msg_1" });
+    fakes.guard = "allow";
   });
 
   afterEach(() => vi.useRealTimers());
 
   it("rechaza a las 06:00 de Bogotá sin tocar el transporte", async () => {
     vi.setSystemTime(new Date("2026-10-19T11:00:00.000Z"));
+    fakes.guard = "outside";
 
     const response = await POST(request());
 
@@ -62,7 +71,7 @@ describe("POST /api/bot/messages durante el relevo nocturno", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "outside_bot_shift",
-        message: "El bot atiende de 22:00 a 06:00 en America/Bogota",
+        message: "La IA atiende de 22:00 a 06:00 en America/Bogota",
       },
     });
     expect(fakes.sendText).not.toHaveBeenCalled();

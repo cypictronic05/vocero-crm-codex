@@ -6,6 +6,13 @@ import type { ConversationDto } from "@/lib/types";
 import type { SessionContext } from "@/lib/auth/session";
 import { calcularActividadBandeja } from "@/lib/conversation-order";
 import { conversationScope } from "@/server/assignments/access";
+import {
+  DEFAULT_AI_SCHEDULE,
+  isAiScheduleActive,
+  type AiSchedule,
+} from "@/lib/ai-schedule";
+import { humanAttentionState } from "@/lib/human-attention";
+import { getOrganizationAiSchedule } from "@/server/ai/schedule";
 
 /**
  * 018 — El anuncio de origen viaja con la conversación. La llave única
@@ -47,6 +54,7 @@ export async function listConversations(
 ): Promise<ConversationDto[]> {
   const { organizationId } = session;
   const db = getDb();
+  const aiSchedule = await getOrganizationAiSchedule(organizationId);
   const previewSql = sql<string | null>`(
     select coalesce(m.text, m.type)
     from message m
@@ -116,7 +124,8 @@ export async function listConversations(
       aAnuncioDeLista(r.anuncio),
       r.assigneeId && r.assigneeName
         ? { id: r.assigneeId, name: r.assigneeName }
-        : null
+        : null,
+      aiSchedule
     )
   );
 }
@@ -195,7 +204,8 @@ export function serializeConversation(
   preview: string | null = null,
   stageName: string | null = null,
   anuncio: ConversationDto["anuncio"] = null,
-  assignee: ConversationDto["assignee"] = null
+  assignee: ConversationDto["assignee"] = null,
+  aiSchedule: AiSchedule = DEFAULT_AI_SCHEDULE
 ): ConversationDto {
   return {
     id: c.id,
@@ -214,6 +224,12 @@ export function serializeConversation(
     aiEnabled: c.aiEnabled,
     handoffAt: c.handoffAt?.toISOString() ?? null,
     handoffReason: c.handoffReason,
+    humanInterventionAt: c.humanInterventionAt?.toISOString() ?? null,
+    humanAttention: humanAttentionState(c),
+    aiSchedule: {
+      ...aiSchedule,
+      active: isAiScheduleActive(aiSchedule),
+    },
     lastInboundAt: c.lastInboundAt?.toISOString() ?? null,
     lastMessageAt: c.lastMessageAt?.toISOString() ?? null,
     unreadCount: c.unreadCount,
@@ -237,6 +253,8 @@ export async function updateConversation(
     set.handoffAt = null;
     set.handoffReason = null;
     set.aiEnabled = patch.aiEnabled ?? true;
+    set.humanInterventionAt = null;
+    set.humanInterventionByMemberId = null;
   }
   if (patch.markRead) set.unreadCount = 0;
 

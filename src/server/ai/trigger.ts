@@ -2,7 +2,8 @@ import { scheduleAgentTurn } from "@/server/ai/pipeline";
 import { isAiConfiguredFor } from "@/lib/ai/provider";
 import { despachoActivo } from "@/server/brains/config";
 import { despacharAlCerebro } from "@/server/dispatch/encolar";
-import { isNightBotActive } from "@/lib/night-bot";
+import { isAiScheduleActive } from "@/lib/ai-schedule";
+import { getOrganizationAiSchedule } from "@/server/ai/schedule";
 
 /**
  * Punto de enganche del turno tras la ingesta de un mensaje entrante REAL (las
@@ -29,7 +30,8 @@ export async function maybeRunAgentTurn(
 ): Promise<void> {
   // 028 — De día la conversación ya fue asignada a una persona por la fase 2.
   // El mensaje queda en PostgreSQL; no se crea trabajo para ningún bot.
-  if (!isNightBotActive(at)) return;
+  const schedule = await getOrganizationAiSchedule(organizationId);
+  if (!isAiScheduleActive(schedule, at)) return;
   if (despachoActivo()) {
     await despacharAlCerebro(conversationId, organizationId, messageId);
     return;

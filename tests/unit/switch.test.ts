@@ -119,6 +119,17 @@ describe("interruptor: accesible", () => {
     );
     expect(pista).not.toContain("focus-visible:ring-brand-soft");
   });
+
+  it("distingue encendido y apagado con relleno y contorno de alto contraste", () => {
+    const apagado = clases(dibujar({ checked: false })).pista;
+    const encendido = clases(dibujar({ checked: true })).pista;
+    expect(apagado).toEqual(
+      expect.arrayContaining(["bg-background", "ring-text-3", "ring-inset"])
+    );
+    expect(encendido).toEqual(
+      expect.arrayContaining(["bg-brand", "ring-brand", "ring-inset"])
+    );
+  });
 });
 
 describe("interruptor: uno solo en todo el producto", () => {

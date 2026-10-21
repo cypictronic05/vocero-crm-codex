@@ -123,6 +123,17 @@ export function aiMockCompletion(messages: InMessage[]): string {
 
   const text = lastUser.toLowerCase();
 
+  // Una tasa que llegó al modelo ya pasó la guarda de vigencia del servidor.
+  // El mock usa la respuesta autorizada del KB en vez de inventar una cifra.
+  if (/\b(tasa|tipo\s+de\s+cambio|cotizaci[oó]n)\b/i.test(text)) {
+    const rateAnswer = system.match(
+      /P: [^\n]*(?:tasa|tipo\s+de\s+cambio|cotizaci[oó]n)[^\n]*\nR: ([^\n]+)/i
+    )?.[1];
+    if (rateAnswer) {
+      return JSON.stringify({ action: "reply", text: rateAnswer });
+    }
+  }
+
   /**
    * 015 — La agenda, ejercitando el camino REAL.
    *

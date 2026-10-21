@@ -358,7 +358,6 @@ export async function pasarAHumano(
   const rows = await getDb()
     .update(schema.conversation)
     .set({
-      aiEnabled: false,
       handoffAt: ahora,
       handoffReason: "error",
       updatedAt: ahora,

@@ -393,14 +393,16 @@ async function ingestManualEcho(
     .update(schema.conversation)
     .set({
       aiEnabled: false,
-      handoffAt: new Date(),
-      handoffReason: "manual_reply",
+      handoffAt: sql`coalesce(${schema.conversation.handoffAt}, now())`,
+      handoffReason: sql`coalesce(${schema.conversation.handoffReason}, 'manual_reply')`,
+      humanInterventionAt: new Date(),
       updatedAt: new Date(),
     })
     .where(
       and(
+        eq(schema.conversation.organizationId, organizationId),
         eq(schema.conversation.id, conversation.id),
-        sql`${schema.conversation.handoffAt} is null`
+        sql`${schema.conversation.humanInterventionAt} is null`
       )
     )
     .returning();

@@ -6,6 +6,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,8 +17,11 @@ if (!url) {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const bundledMigrations = path.join(here, "drizzle");
+const sourceMigrations = path.join(here, "..", "drizzle");
 const migrationsFolder =
-  process.env.MIGRATIONS_DIR ?? path.join(here, "drizzle");
+  process.env.MIGRATIONS_DIR ??
+  (existsSync(bundledMigrations) ? bundledMigrations : sourceMigrations);
 
 const maxAttempts = 15;
 for (let attempt = 1; attempt <= maxAttempts; attempt++) {

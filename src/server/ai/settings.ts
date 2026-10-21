@@ -16,6 +16,8 @@ import {
   getAiCredentialSecret,
   type AiCredentialPublic,
 } from "@/server/ai/credentials";
+import type { AiSchedule } from "@/lib/ai-schedule";
+import { getOrganizationAiSchedule } from "@/server/ai/schedule";
 
 /**
  * Ajustes → IA: lo que valida y lo que devuelve `/api/settings/ai`. Fuera del
@@ -128,6 +130,7 @@ export type AiSettingsView = {
   mensaje: string | null;
   /** Las variables `OPENROUTER_*`, si están: el respaldo. */
   respaldoEntorno: { baseUrl: string; modelo: string; tokenLast4: string } | null;
+  horario: AiSchedule;
 };
 
 export function credencialVista(
@@ -149,17 +152,23 @@ export function credencialVista(
 export async function vistaAjustesIa(
   organizationId: string
 ): Promise<AiSettingsView> {
-  const [cred, estado] = await Promise.all([
+  const [cred, estado, horario] = await Promise.all([
     getAiCredentialPublic(organizationId),
     estadoIaDe(organizationId),
+    getOrganizationAiSchedule(organizationId),
   ]);
-  return armarVista(cred, estado);
+  return armarVista(cred, estado, horario);
 }
 
 /** Pura, para las pruebas. */
 export function armarVista(
   cred: AiCredentialPublic | null,
-  estado: EstadoIa
+  estado: EstadoIa,
+  horario: AiSchedule = {
+    startMinute: 22 * 60,
+    endMinute: 6 * 60,
+    timeZone: "America/Bogota",
+  }
 ): AiSettingsView {
   const env = envAiProvider();
   return {
@@ -170,5 +179,6 @@ export function armarVista(
     respaldoEntorno: env
       ? { baseUrl: env.baseUrl, modelo: env.model, tokenLast4: last4(env.token) }
       : null,
+    horario,
   };
 }

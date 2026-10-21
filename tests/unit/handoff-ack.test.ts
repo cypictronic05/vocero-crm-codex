@@ -44,6 +44,23 @@ vi.mock("@/server/ai/credentials", () => ({
   getAiCredentialSecret: async () => null,
 }));
 
+vi.mock("@/server/ai/schedule", () => ({
+  getOrganizationAiSchedule: async () => ({
+    startMinute: 22 * 60,
+    endMinute: 6 * 60,
+    timeZone: "America/Bogota",
+  }),
+}));
+
+vi.mock("@/server/ai/eligibility", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/server/ai/eligibility")>();
+  return {
+    ...original,
+    withAiConversationSendLock: async (input: { action: () => Promise<unknown> }) =>
+      input.action(),
+  };
+});
+
 // BD simulada: cola de resultados de select + capturas de insert/update.
 const selectQueue: unknown[][] = [];
 const inserts: Record<string, unknown>[] = [];
@@ -239,7 +256,7 @@ describe("acuse del patrón de respaldo antes de traspasar (FR-022)", () => {
     expect(eventos).toEqual(["handoff:ventana"]);
   });
 
-  it("un turno que vuelve a correr tras el traspaso NO repite el acuse", async () => {
+  it("un mensaje posterior recibe información sin repetir ni reiniciar el handoff", async () => {
     // Primer turno: acuse + traspaso.
     turno("quiero hablar con un humano");
     await correrTurno();
@@ -247,13 +264,23 @@ describe("acuse del patrón de respaldo antes de traspasar (FR-022)", () => {
     // conversación YA traspasada. El último entrante sigue siendo la misma
     // frase, así que si el silencio no mandara, el acuse saldría dos veces.
     turno(
-      "quiero hablar con un humano",
+      "¿Cuál es el horario de atención?",
       conversacion({ handoffAt: new Date(), handoffReason: "cliente" })
     );
+    chatJson.mockResolvedValueOnce({
+      ok: true,
+      data: { action: "reply", text: "Atendemos desde las seis." },
+      raw: "{}",
+    });
     await correrTurno();
 
-    expect(sendText).toHaveBeenCalledTimes(1);
-    expect(eventos).toEqual([`enviado:${HANDOFF_BACKUP_ACK}`, "handoff:cliente"]);
+    expect(sendText).toHaveBeenCalledTimes(2);
+    expect(eventos).toEqual([
+      `enviado:${HANDOFF_BACKUP_ACK}`,
+      "handoff:cliente",
+      "enviado:Atendemos desde las seis.",
+    ]);
+    expect(updates.filter((update) => update.handoffReason === "cliente")).toHaveLength(1);
   });
 
   it("es el mismo emisor y el mismo orden que el `farewell` del camino del modelo", async () => {

@@ -49,14 +49,16 @@ export function Switch({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "relative inline-flex shrink-0 items-center rounded-full transition-colors",
+        "relative inline-flex shrink-0 items-center rounded-full ring-2 ring-inset transition-colors",
         // El anillo de `ui/button`: el acento sólido, separado de la pista
         // (encendida ya es del color del acento). El suave (`ring-brand-soft`)
         // queda a ~1.3:1 del fondo y se veía menos que el del navegador.
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         "disabled:cursor-not-allowed disabled:opacity-40",
         s.track,
-        checked ? "bg-brand" : "bg-border-strong",
+        checked
+          ? "bg-brand ring-brand shadow-sm"
+          : "bg-background ring-text-3 shadow-inner",
         className
       )}
     >

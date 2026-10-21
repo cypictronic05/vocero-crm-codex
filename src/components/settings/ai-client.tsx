@@ -48,6 +48,7 @@ type Vista = {
   origen: "org" | "env" | null;
   mensaje: string | null;
   respaldoEntorno: { baseUrl: string; modelo: string; tokenLast4: string } | null;
+  horario: { startMinute: number; endMinute: number; timeZone: string };
 };
 
 type Modelo = { id: string; nombre: string | null };
@@ -71,6 +72,11 @@ export function AiClient() {
   const [ocupado, setOcupado] = useState<Ocupado>(null);
   const [mensaje, setMensaje] = useState<Mensaje | null>(null);
   const [modelos, setModelos] = useState<Modelo[] | null>(null);
+  const [scheduleStart, setScheduleStart] = useState("22:00");
+  const [scheduleEnd, setScheduleEnd] = useState("06:00");
+  const [scheduleTimeZone, setScheduleTimeZone] = useState("America/Bogota");
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleMessage, setScheduleMessage] = useState<Mensaje | null>(null);
 
   const cargar = useCallback(async (): Promise<Vista | null> => {
     const res = await fetch("/api/settings/ai").catch(() => null);
@@ -84,6 +90,9 @@ export function AiClient() {
     void (async () => {
       const data = await cargar();
       if (!data) return;
+      setScheduleStart(minuteToInput(data.horario.startMinute));
+      setScheduleEnd(minuteToInput(data.horario.endMinute));
+      setScheduleTimeZone(data.horario.timeZone);
       // El formulario arranca con lo guardado; si no hay nada, con el respaldo
       // del entorno (para que «Guardar» lo deje escrito tal cual se usa hoy).
       const base = data.credencial
@@ -244,6 +253,32 @@ export function AiClient() {
         ? "Llave eliminada. El agente sigue con las variables del entorno de la instancia."
         : "Llave eliminada. Tu agente no puede contestar hasta que configures otra.",
     });
+  }
+
+  async function guardarHorario(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingSchedule(true);
+    setScheduleMessage(null);
+    const res = await fetch("/api/settings/ai/schedule", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        startMinute: inputToMinute(scheduleStart),
+        endMinute: inputToMinute(scheduleEnd),
+        timeZone: scheduleTimeZone.trim(),
+      }),
+    }).catch(() => null);
+    setSavingSchedule(false);
+    if (!res?.ok) {
+      setScheduleMessage({
+        kind: "error",
+        text: await leerError(res, "No se pudo guardar el horario de IA"),
+      });
+      return;
+    }
+    const data = (await res.json()) as { horario: Vista["horario"] };
+    setVista((current) => (current ? { ...current, horario: data.horario } : current));
+    setScheduleMessage({ kind: "ok", text: "Horario de IA guardado." });
   }
 
   return (
@@ -423,8 +458,81 @@ export function AiClient() {
           </form>
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Horario de atención con IA</CardTitle>
+          <CardDescription>
+            La IA solo inicia y entrega respuestas dentro de esta ventana. Puede
+            cruzar medianoche y siempre se interpreta en la zona IANA indicada.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={guardarHorario} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-schedule-start">Desde</Label>
+                <Input
+                  id="ai-schedule-start"
+                  type="time"
+                  value={scheduleStart}
+                  onChange={(event) => setScheduleStart(event.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-schedule-end">Hasta</Label>
+                <Input
+                  id="ai-schedule-end"
+                  type="time"
+                  value={scheduleEnd}
+                  onChange={(event) => setScheduleEnd(event.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-schedule-time-zone">Zona horaria IANA</Label>
+              <Input
+                id="ai-schedule-time-zone"
+                value={scheduleTimeZone}
+                onChange={(event) => setScheduleTimeZone(event.target.value)}
+                placeholder="America/Bogota"
+                autoComplete="off"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Ejemplo: America/Bogota. No depende del huso del servidor.
+              </p>
+            </div>
+            {scheduleMessage && (
+              <p
+                role={scheduleMessage.kind === "error" ? "alert" : "status"}
+                className={
+                  scheduleMessage.kind === "error"
+                    ? "text-sm text-danger-text"
+                    : "text-sm text-success-text"
+                }
+              >
+                {scheduleMessage.text}
+              </p>
+            )}
+            <Button type="submit" disabled={savingSchedule}>
+              {savingSchedule ? "Guardando…" : "Guardar horario"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
+}
+
+function minuteToInput(value: number): string {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+function inputToMinute(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return (hour ?? 0) * 60 + (minute ?? 0);
 }
 
 function EstadoGuardado({ cred, vista }: { cred: Credencial; vista: Vista }) {

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -26,11 +26,21 @@ import {
 import { agendaEnabled } from "@/server/agenda/flag";
 import { bookSlot, offerSlots } from "@/server/agenda/agent";
 import { getOffers, mapaDeHuecosParaModelo } from "@/server/agenda/offers";
-import { isNightBotActive } from "@/lib/night-bot";
+import { DEFAULT_AI_SCHEDULE, isAiScheduleActive } from "@/lib/ai-schedule";
+import { conversationAllowsAi } from "@/lib/human-attention";
+import { getOrganizationAiSchedule } from "@/server/ai/schedule";
+import {
+  AiSendGuardError,
+  withAiConversationSendLock,
+} from "@/server/ai/eligibility";
 import {
   MEDIA_REVIEW_ACK,
   requiresHumanMediaReview,
 } from "@/server/ai/media-safety";
+import {
+  FINANCIAL_REVIEW_ACK,
+  financialReviewReason,
+} from "@/server/ai/financial-safety";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -153,12 +163,16 @@ export async function runAgentTurn(
   const conversation = convRows[0];
   if (!conversation) return;
   const organizationId = conversation.organizationId;
+  // El Laboratorio nunca sale a WhatsApp y no depende del horario operativo.
+  const schedule = conversation.isTest
+    ? DEFAULT_AI_SCHEDULE
+    : await getOrganizationAiSchedule(organizationId);
 
   // 028 — El Laboratorio conserva sus turnos a cualquier hora. Una
-  // conversación real solo pertenece al bot durante la noche de Bogotá.
+  // conversación real solo pertenece al bot durante la ventana de su organización.
   if (
     !conversation.isTest &&
-    !isNightBotActive(opciones.at ?? new Date())
+    !isAiScheduleActive(schedule, opciones.at ?? new Date())
   ) {
     return;
   }
@@ -171,7 +185,7 @@ export async function runAgentTurn(
   if (!(await isAiConfiguredFor(organizationId))) return;
 
   // Condiciones de silencio: handoff activo o IA apagada en la conversación.
-  if (conversation.handoffAt || !conversation.aiEnabled) return;
+  if (!conversationAllowsAi(conversation)) return;
 
   const profileRows = await db
     .select()
@@ -230,6 +244,12 @@ export async function runAgentTurn(
     return leido;
   }
 
+  const kb = await db
+    .select()
+    .from(schema.kbEntry)
+    .where(eq(schema.kbEntry.organizationId, organizationId))
+    .orderBy(asc(schema.kbEntry.createdAt));
+
   // Una imagen/documento puede ser un comprobante. El agente no interpreta
   // binarios y jamás puede convertir una foto en confirmación de pago.
   const pendientesDeRevision = vigentes.length ? vigentes : [lastInbound];
@@ -250,20 +270,42 @@ export async function runAgentTurn(
     return leido;
   }
 
+  const financialReason = lastInbound.text
+    ? financialReviewReason({
+        text: lastInbound.text,
+        knowledge: kb,
+        at: opciones.at ?? new Date(),
+        timeZone: schedule.timeZone,
+      })
+    : null;
+  if (!conversation.isTest && financialReason) {
+    // Una solicitud ya pendiente no se reinicia ni genera acuses repetidos.
+    if (!conversation.handoffAt) {
+      try {
+        await deliverReply(conversation, FINANCIAL_REVIEW_ACK, opciones.at);
+      } catch {
+        console.error(
+          "[agente] el acuse de revisión financiera no salió; se traspasa igual"
+        );
+      }
+      await applyHandoff(conversationId, organizationId, "modelo");
+    }
+    return leido;
+  }
+
   // Patrón de respaldo ANTES del LLM (FR-022). Avisa y traspasa, en el mismo
   // orden que el camino del modelo (`farewell` y luego handoff): callar ante
   // quien pide una persona se lee como que el bot dejó de contestar.
-  if (lastInbound.text && matchesHandoffIntent(lastInbound.text)) {
+  if (
+    !conversation.handoffAt &&
+    lastInbound.text &&
+    matchesHandoffIntent(lastInbound.text)
+  ) {
     await acknowledgeHandoff(conversation, opciones.at);
     await applyHandoff(conversationId, organizationId, "cliente");
     return leido;
   }
 
-  const kb = await db
-    .select()
-    .from(schema.kbEntry)
-    .where(eq(schema.kbEntry.organizationId, organizationId))
-    .orderBy(asc(schema.kbEntry.createdAt));
   const stages = await db
     .select({ id: schema.pipelineStage.id, name: schema.pipelineStage.name })
     .from(schema.pipelineStage)
@@ -313,6 +355,15 @@ export async function runAgentTurn(
     ...(mapaDeHuecos
       ? [{ role: "system" as const, content: mapaDeHuecos }]
       : []),
+    ...(conversation.handoffAt && conversation.handoffReason === "cliente"
+      ? [
+          {
+            role: "system" as const,
+            content:
+              "La solicitud de atención humana ya está registrada y pendiente. No vuelvas a escalarla ni prometas una hora. Responde solo información general respaldada por el conocimiento; cualquier validación de pagos, tasas, disponibilidad u operaciones debe quedar para la persona.",
+          },
+        ]
+      : []),
   ];
 
   const result = await chatJson(agentActionSchema(agenda), messages, {
@@ -328,9 +379,12 @@ export async function runAgentTurn(
     return leido;
   }
 
-  // El LLM puede tardar y cruzar las 06:00. Se revalida antes de ejecutar su
+  // El LLM puede tardar y cruzar el fin del horario. Se revalida antes de ejecutar su
   // acción para que el relevo horario sea una frontera real, no aproximada.
-  if (!conversation.isTest && !isNightBotActive(opciones.at ?? new Date())) {
+  if (
+    !conversation.isTest &&
+    !isAiScheduleActive(schedule, opciones.at ?? new Date())
+  ) {
     return leido;
   }
 
@@ -402,6 +456,9 @@ export async function runAgentTurn(
       return leido;
     }
     case "handoff": {
+      // La solicitud original ya está pendiente: una salida posterior del
+      // modelo no reinicia su fecha ni repite la despedida.
+      if (conversation.handoffAt) return leido;
       if (action.farewell) {
         await deliverReply(conversation, action.farewell, opciones.at);
       }
@@ -424,16 +481,22 @@ async function deliverReply(
     await persistTestOutbound(conversation, text);
     return;
   }
-  // Última guarda contra un cruce de las 06:00 durante una acción previa.
-  if (!isNightBotActive(at ?? new Date())) return;
+  // Última guarda contra un cruce del fin horario o una intervención humana.
   try {
-    await sendText({
+    await withAiConversationSendLock({
       conversationId: conversation.id,
       organizationId: conversation.organizationId,
-      text,
-      aiGenerated: true,
+      at,
+      action: () =>
+        sendText({
+          conversationId: conversation.id,
+          organizationId: conversation.organizationId,
+          text,
+          aiGenerated: true,
+        }),
     });
   } catch (err) {
+    if (err instanceof AiSendGuardError) return;
     if (err instanceof SendError && err.code === "window_closed") {
       await applyHandoff(conversation.id, conversation.organizationId, "ventana");
       return;
@@ -503,7 +566,14 @@ export async function applyHandoff(
   const updated = await db
     .update(schema.conversation)
     .set({ handoffAt: new Date(), handoffReason: reason, updatedAt: new Date() })
-    .where(eq(schema.conversation.id, conversationId))
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.id, conversationId),
+        sql`${schema.conversation.handoffAt} is null`
+      )
+    )
     .returning();
   if (!updated[0]) return;
   publish(organizationId, {
