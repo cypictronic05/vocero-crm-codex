@@ -35,6 +35,10 @@ const prefixes = {
   dispatch: "dsp",
   teamAuditEvent: "tae",
   conversationAssignmentEvent: "ase",
+  exchangeRateRoute: "xrr",
+  exchangeRateQuote: "xrq",
+  exchangeRateAuditEvent: "xra",
+  exchangeRateRequest: "xrp",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

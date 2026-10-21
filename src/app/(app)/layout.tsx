@@ -9,6 +9,8 @@ import { resolveCommit } from "@/lib/version";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { avisoIaDe } from "@/server/ai/aviso";
 import { AvisoIaBanner } from "@/components/avisos/aviso-ia";
+import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
+import { organizationRatesEnabled } from "@/server/exchange-rates/service";
 
 export default async function AppLayout({
   children,
@@ -26,6 +28,8 @@ export default async function AppLayout({
   // bot roto. Se resuelve en el servidor y en el layout para que se vea desde
   // CUALQUIER pantalla, no solo desde el panel de un contacto (#85).
   const aviso = await avisoIaDe(session.organizationId);
+  const rates = exchangeRatesEnabled() &&
+    (session.role === "owner" || (await organizationRatesEnabled(session.organizationId)));
 
   return (
     <AppShell
@@ -41,6 +45,7 @@ export default async function AppLayout({
       // prop, igual que los canales de la Bandeja. El nav es un componente de
       // cliente: no puede —ni debe— leer variables de entorno.
       agenda={agendaEnabled()}
+      rates={rates}
       aviso={<AvisoIaBanner aviso={aviso} />}
     >
       {children}

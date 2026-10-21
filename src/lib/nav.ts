@@ -5,6 +5,7 @@ import {
   Inbox,
   Kanban,
   ListChecks,
+  ArrowLeftRight,
   Settings,
   Sparkles,
   Users,
@@ -50,10 +51,13 @@ export const SETTINGS_ITEM: NavItem = {
  */
 export function appNavGroups({
   agenda = false,
+  rates = false,
   role,
 }: {
   /** 015 — "Citas" solo existe si esta instancia encendió la agenda. */
   agenda?: boolean;
+  /** 033 — módulo de tasas disponible para esta organización. */
+  rates?: boolean;
   /** #86 — La guía de inicio solo para quien puede configurar. */
   role?: string | null;
 }): NavGroup[] {
@@ -82,6 +86,9 @@ export function appNavGroups({
   return [
     { title: "Trabajo", items: trabajo },
     ...(agente.length > 0 ? [{ title: "Agente", items: agente }] : []),
+    ...(rates
+      ? [{ title: "Negocio", items: [{ href: "/exchange-rates", label: "Tasas de cambio", icon: ArrowLeftRight }] }]
+      : []),
     // 019 — Se mide al final: primero se atiende y se organiza.
     ...results,
   ];

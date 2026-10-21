@@ -20,6 +20,7 @@ export const PERMISSIONS = {
   CONVERSATIONS_VIEW_ALL: "conversations:view-all",
   RESULTS_VIEW: "results:view",
   TEAM_VIEW: "team:view",
+  EXCHANGE_RATES_AUTHORIZE: "exchange-rates:authorize",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

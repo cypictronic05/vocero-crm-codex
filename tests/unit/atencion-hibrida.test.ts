@@ -138,7 +138,7 @@ describe("supervisión y protección concurrente", () => {
     })).toBe("transaction_validation");
   });
 
-  it("una tasa solo pasa con conocimiento autorizado actualizado ese día", () => {
+  it("el knowledge base nunca autoriza una tasa comercial", () => {
     const at = new Date("2026-10-19T08:00:00Z");
     const current = [{
       question: "¿Cuál es la tasa vigente?",
@@ -146,17 +146,10 @@ describe("supervisión y protección concurrente", () => {
       content: null,
       updatedAt: new Date("2026-10-19T07:00:00Z"),
     }];
-    const stale = [{ ...current[0]!, updatedAt: new Date("2026-10-18T07:00:00Z") }];
-    expect(hasAuthorizedCurrentRate(current, at, "America/Bogota")).toBe(true);
+    expect(hasAuthorizedCurrentRate(current, at, "America/Bogota")).toBe(false);
     expect(financialReviewReason({
       text: "¿Cuál es la tasa de hoy?",
       knowledge: current,
-      at,
-      timeZone: "America/Bogota",
-    })).toBeNull();
-    expect(financialReviewReason({
-      text: "¿Cuál es la tasa de hoy?",
-      knowledge: stale,
       at,
       timeZone: "America/Bogota",
     })).toBe("rate_not_authorized_or_stale");

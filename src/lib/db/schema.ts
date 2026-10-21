@@ -4,6 +4,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -96,6 +97,7 @@ export const organization = pgTable("organization", {
   aiScheduleTimeZone: text("ai_schedule_time_zone")
     .notNull()
     .default("America/Bogota"),
+  exchangeRatesEnabled: boolean("exchange_rates_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   metadata: text("metadata"),
 });
@@ -109,6 +111,9 @@ export const member = pgTable("member", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   role: text("role", { enum: APP_ROLES }).notNull().default("member"),
+  canManageExchangeRates: boolean("can_manage_exchange_rates")
+    .notNull()
+    .default(false),
   status: text("status").notNull().default("enabled"),
   weeklySchedule: jsonb("weekly_schedule")
     .$type<{ day: number; startMinute: number; endMinute: number }[]>()
@@ -1293,4 +1298,88 @@ export const dispatch = pgTable(
     // La consulta del worker: pendientes cuya ventana ya venció.
     index("dispatch_status_notbefore_idx").on(t.status, t.notBefore),
   ]
+);
+
+/* 033 — Tasas de cambio: toda fila de dominio queda aislada por organización. */
+export const exchangeRateRoute = pgTable(
+  "exchange_rate_route",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    originCountry: text("origin_country").notNull(),
+    originCurrency: text("origin_currency").notNull(),
+    destinationCountry: text("destination_country").notNull(),
+    destinationCurrency: text("destination_currency").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("exchange_rate_route_org_direction_uq").on(t.organizationId, t.originCountry, t.originCurrency, t.destinationCountry, t.destinationCurrency),
+    index("exchange_rate_route_org_active_idx").on(t.organizationId, t.active),
+    check("exchange_rate_route_distinct_ck", sql`${t.originCountry} <> ${t.destinationCountry} OR ${t.originCurrency} <> ${t.destinationCurrency}`),
+  ]
+);
+
+export const exchangeRateQuote = pgTable(
+  "exchange_rate_quote",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    routeId: text("route_id").notNull().references(() => exchangeRateRoute.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    sourceUnits: numeric("source_units", { precision: 30, scale: 12 }).notNull(),
+    destinationUnits: numeric("destination_units", { precision: 30, scale: 12 }).notNull(),
+    commercialRate: numeric("commercial_rate", { precision: 30, scale: 12 }).notNull(),
+    precision: integer("precision").notNull(),
+    validFrom: timestamp("valid_from").notNull(),
+    validUntil: timestamp("valid_until"),
+    status: text("status", { enum: ["draft", "published", "disabled"] }).notNull().default("draft"),
+    createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+    publishedByUserId: text("published_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+    publishedAt: timestamp("published_at"),
+    disabledAt: timestamp("disabled_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("exchange_rate_quote_org_route_version_uq").on(t.organizationId, t.routeId, t.version),
+    index("exchange_rate_quote_org_status_valid_idx").on(t.organizationId, t.status, t.validFrom, t.validUntil),
+    check("exchange_rate_quote_values_ck", sql`${t.sourceUnits} > 0 AND ${t.destinationUnits} > 0 AND ${t.commercialRate} > 0`),
+    check("exchange_rate_quote_precision_ck", sql`${t.precision} BETWEEN 0 AND 12`),
+    check("exchange_rate_quote_interval_ck", sql`${t.validUntil} IS NULL OR ${t.validUntil} > ${t.validFrom}`),
+  ]
+);
+
+export const exchangeRateAuditEvent = pgTable(
+  "exchange_rate_audit_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+    routeId: text("route_id").references(() => exchangeRateRoute.id, { onDelete: "restrict" }),
+    quoteId: text("quote_id").references(() => exchangeRateQuote.id, { onDelete: "restrict" }),
+    action: text("action").notNull(),
+    before: jsonb("before").$type<Record<string, unknown> | null>(),
+    after: jsonb("after").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("exchange_rate_audit_org_created_idx").on(t.organizationId, t.createdAt)]
+);
+
+export const exchangeRateRequest = pgTable(
+  "exchange_rate_request",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").notNull().references(() => conversation.id, { onDelete: "cascade" }),
+    messageId: text("message_id").references(() => message.id, { onDelete: "set null" }),
+    requestText: text("request_text").notNull(),
+    reason: text("reason").notNull(),
+    status: text("status", { enum: ["pending", "resolved"] }).notNull().default("pending"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at"),
+  },
+  (t) => [index("exchange_rate_request_org_status_idx").on(t.organizationId, t.status, t.createdAt)]
 );

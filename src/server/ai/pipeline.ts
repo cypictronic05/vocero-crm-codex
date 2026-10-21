@@ -41,6 +41,7 @@ import {
   FINANCIAL_REVIEW_ACK,
   financialReviewReason,
 } from "@/server/ai/financial-safety";
+import { resolveRateConversation } from "@/server/exchange-rates/conversation";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -278,6 +279,35 @@ export async function runAgentTurn(
         timeZone: schedule.timeZone,
       })
     : null;
+
+  if (!conversation.isTest && financialReason === "transaction_validation") {
+    if (!conversation.handoffAt) {
+      try {
+        await deliverReply(conversation, FINANCIAL_REVIEW_ACK, opciones.at);
+      } catch {
+        console.error("[agente] el acuse de revisión financiera no salió; se traspasa igual");
+      }
+      await applyHandoff(conversationId, organizationId, "modelo");
+    }
+    return leido;
+  }
+
+  // 033 — PostgreSQL es la única fuente de tasas. La respuesta y cualquier
+  // cálculo se producen antes del LLM; el modelo nunca recibe la tabla.
+  if (!conversation.isTest && lastInbound.text) {
+    const rateResult = await resolveRateConversation({
+      organizationId,
+      conversationId,
+      messageId: lastInbound.id,
+      text: lastInbound.text,
+      at: opciones.at,
+    });
+    if (rateResult) {
+      await deliverReply(conversation, rateResult.reply, opciones.at);
+      return leido;
+    }
+  }
+
   if (!conversation.isTest && financialReason) {
     // Una solicitud ya pendiente no se reinicia ni genera acuses repetidos.
     if (!conversation.handoffAt) {

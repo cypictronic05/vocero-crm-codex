@@ -155,6 +155,13 @@
       "when": 1792553644432,
       "tag": "0021_atencion_hibrida_nocturna",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792597306994,
+      "tag": "0022_magenta_korath",
+      "breakpoints": true
     }
   ]
 }
