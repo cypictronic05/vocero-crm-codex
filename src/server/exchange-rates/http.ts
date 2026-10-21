@@ -8,7 +8,7 @@ export function exchangeRateErrorResponse(error: unknown): Response {
       ? 403
       : error.code === "not_found" || error.code === "module_disabled"
         ? 404
-        : error.code === "overlap" || error.code === "invalid_state"
+        : error.code === "overlap" || error.code === "invalid_state" || error.code === "route_not_configured"
           ? 409
           : 422;
   return apiError(status, error.code, error.message);

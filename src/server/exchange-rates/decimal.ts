@@ -1,6 +1,7 @@
 const DECIMAL = /^\+?(\d+)(?:\.(\d+))?$/;
 
 type Decimal = { coefficient: bigint; scale: number };
+export type CalculationOperation = "multiply" | "divide";
 
 function power10(value: number): bigint {
   return 10n ** BigInt(value);
@@ -58,6 +59,22 @@ export function multiplyDecimal(
     return formatDecimal(product * power10(precision - scale), precision);
   }
   return formatDecimal(roundedDivision(product, power10(scale - precision)), precision);
+}
+
+/** Aplica la fórmula configurada y redondea una sola vez al resultado final. */
+export function calculateConversion(
+  amountValue: string,
+  rateValue: string,
+  operation: CalculationOperation,
+  precision: number
+): string {
+  return operation === "multiply"
+    ? multiplyDecimal(amountValue, rateValue, precision)
+    : divideDecimal(amountValue, rateValue, precision);
+}
+
+export function operationSymbol(operation: CalculationOperation): "×" | "÷" {
+  return operation === "multiply" ? "×" : "÷";
 }
 
 export function sameDecimal(left: string, right: string): boolean {

@@ -25,11 +25,20 @@ intercepción previa al LLM que consulta únicamente PostgreSQL.
 5. Publicación inmutable; una modificación crea borrador nuevo.
 6. Resolver conversacional determinista antes del LLM; seguridad transaccional
    y horarios de Fase 4 permanecen sin cambios.
+7. Corrección 5A.1: migración 0023 aditiva con operación/precisión nullable en
+   rutas y operación nullable en cotizaciones; no hace backfill.
+8. El owner configura fórmula/precisión una vez. El supervisor autorizado crea
+   versiones solo con ruta, tasa y vigencia; el servidor deriva unidades.
+9. La cotización copia la fórmula para que historial e IA no dependan de una
+   reinterpretación posterior. La UI muestra una vista previa exacta antes de
+   publicar.
 
 ## Migración y verificación
 
 Generar con `pnpm db:generate`, revisar SQL aditivo y probar sobre PostgreSQL
-aislado con 0021. Verificar unitarias, E2E local con mocks, tipos, lint y build.
+aislado tanto 0000→0023 como 0000→0022 con datos y luego 0023. Verificar que
+0023 no altera cotizaciones existentes. Ejecutar unitarias, E2E local con mocks,
+tipos, lint y build.
 
 ## Constitución (antes y después del diseño)
 

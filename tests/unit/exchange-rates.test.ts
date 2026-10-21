@@ -1,23 +1,25 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { divideDecimal, multiplyDecimal, parsePositiveDecimal, sameDecimal } from "@/server/exchange-rates/decimal";
+import { calculateConversion, divideDecimal, multiplyDecimal, parsePositiveDecimal, sameDecimal } from "@/server/exchange-rates/decimal";
 import { parseExchangeRatesFlag } from "@/server/exchange-rates/flag";
 import { roleCanManageExchangeRates } from "@/server/exchange-rates/service";
-import { createExchangeRateSchema } from "@/server/exchange-rates/validation";
+import { configureExchangeRateRouteSchema, createExchangeRateSchema } from "@/server/exchange-rates/validation";
+import { requiredOperationForRoute } from "@/server/exchange-rates/rules";
 import { appNavGroups } from "@/lib/nav";
 import { resolveRateText, type CurrentRate } from "@/server/exchange-rates/conversation";
 
 const valid = {
-  originCountry: "CO", originCurrency: "USD", destinationCountry: "VE", destinationCurrency: "VES",
-  sourceUnits: "1", destinationUnits: "39.123456789012", commercialRate: "39.123456789012",
-  precision: 2, validFrom: "2026-10-21T10:00:00.000Z", validUntil: null,
+  routeId: "xrr_route", commercialRate: "3.68",
+  validFrom: "2026-10-21T10:00:00.000Z", validUntil: null,
 };
 
 const currentRate: CurrentRate = {
-  routeId: "xrr_1", quoteId: "xrq_1", originCountry: "CO", originCurrency: "USD",
+  routeId: "xrr_1", quoteId: "xrq_1", originCountry: "CO", originCurrency: "COP",
   destinationCountry: "VE", destinationCurrency: "VES", active: true, version: 1,
-  sourceUnits: "1.000000000000", destinationUnits: "39.120000000000",
-  commercialRate: "39.120000000000", precision: 2,
+  routeOperation: "divide", roundingPrecision: 2,
+  sourceUnits: "3.680000000000", destinationUnits: "1.000000000000",
+  commercialRate: "3.680000000000", calculationOperation: "divide", precision: 2,
+  previewAmount: "100000", previewResult: "27173.91",
   validFrom: new Date("2026-10-21T10:00:00Z"), validUntil: null,
   status: "published", createdByUserId: "usr_owner", publishedByUserId: "usr_owner",
   createdByName: "Owner", publishedByName: "Owner",
@@ -34,20 +36,29 @@ describe("tasas de cambio", () => {
     expect(() => parsePositiveDecimal("-1")).toThrow();
   });
 
-  it("valida unidades, intervalo, códigos y precisión", () => {
+  it("valida tasa e intervalo sin pedir unidades ni fórmula diariamente", () => {
     expect(createExchangeRateSchema.safeParse(valid).success).toBe(true);
-    expect(createExchangeRateSchema.safeParse({ ...valid, sourceUnits: "0" }).success).toBe(false);
-    expect(createExchangeRateSchema.safeParse({ ...valid, precision: 13 }).success).toBe(false);
-    expect(createExchangeRateSchema.safeParse({ ...valid, destinationCurrency: "USD", destinationCountry: "CO" }).success).toBe(false);
-    expect(createExchangeRateSchema.safeParse({ ...valid, originCountry: "ZZ" }).success).toBe(false);
-    expect(createExchangeRateSchema.safeParse({ ...valid, originCurrency: "ZZZ" }).success).toBe(false);
+    expect(createExchangeRateSchema.safeParse({ ...valid, commercialRate: "0" }).success).toBe(false);
+    expect(createExchangeRateSchema.safeParse({ ...valid, commercialRate: "-1" }).success).toBe(false);
     expect(createExchangeRateSchema.safeParse({ ...valid, validUntil: "2026-10-21T09:00:00.000Z" }).success).toBe(false);
   });
 
-  it("trata las rutas inversas como entradas distintas", () => {
-    const reverse = { ...valid, originCountry: "VE", originCurrency: "VES", destinationCountry: "CO", destinationCurrency: "USD", destinationUnits: "0.025", commercialRate: "0.025" };
-    expect(createExchangeRateSchema.safeParse(reverse).success).toBe(true);
-    expect(reverse.originCurrency).not.toBe(valid.originCurrency);
+  it("fija las cuatro fórmulas comerciales y deja otras rutas al owner", () => {
+    expect(requiredOperationForRoute("CO", "VE")).toBe("divide");
+    expect(requiredOperationForRoute("VE", "CO")).toBe("multiply");
+    expect(requiredOperationForRoute("PE", "VE")).toBe("multiply");
+    expect(requiredOperationForRoute("CL", "VE")).toBe("multiply");
+    expect(requiredOperationForRoute("EC", "VE")).toBeNull();
+    const route = { originCountry: "CO", originCurrency: "COP", destinationCountry: "VE", destinationCurrency: "VES", operation: "divide", precision: 2 } as const;
+    expect(configureExchangeRateRouteSchema.safeParse(route).success).toBe(true);
+    expect(configureExchangeRateRouteSchema.safeParse({ ...route, operation: "multiply" }).success).toBe(false);
+    expect(configureExchangeRateRouteSchema.safeParse({ ...route, originCurrency: "USD" }).success).toBe(false);
+    expect(configureExchangeRateRouteSchema.safeParse({ ...route, originCountry: "ZZ" }).success).toBe(false);
+  });
+
+  it("calcula los ejemplos Nexora con decimal exacto y redondeo final half-up", () => {
+    expect(calculateConversion("100000", "3.68", "divide", 2)).toBe("27173.91");
+    expect(calculateConversion("100000", "2.90", "multiply", 2)).toBe("290000");
   });
 
   it("owner administra, supervisor requiere capacidad y member nunca administra", () => {
@@ -58,18 +69,31 @@ describe("tasas de cambio", () => {
   });
 
   it("resuelve IA con tasa vigente e importe sin confirmar operaciones", () => {
-    const plain = resolveRateText("¿Cuál es la tasa de USD a VES?", [currentRate]);
+    const plain = resolveRateText("¿Cuál es la tasa de COP a VES?", [currentRate]);
     expect(plain?.kind).toBe("rate");
-    expect(plain?.reply).toContain("1.000000000000 USD = 39.120000000000 VES");
-    const amount = resolveRateText("Quiero convertir 100.10 USD a VES", [currentRate]);
-    expect(amount?.reply).toContain("3915.91 VES");
+    expect(plain?.reply).toContain("COP ÷ 3.680000000000 → VES");
+    const amount = resolveRateText("Quiero convertir 100000 COP a VES", [currentRate]);
+    expect(amount?.reply).toContain("100000 COP ÷ 3.680000000000 = 27173.91 VES");
     expect(amount?.reply.toLowerCase()).not.toContain("transferencia confirmada");
+
+    const venezuelaToColombia: CurrentRate = {
+      ...currentRate,
+      routeId: "xrr_ve_co", quoteId: "xrq_ve_co",
+      originCountry: "VE", originCurrency: "VES",
+      destinationCountry: "CO", destinationCurrency: "COP",
+      routeOperation: "multiply", calculationOperation: "multiply",
+      sourceUnits: "1.000000000000", destinationUnits: "2.900000000000",
+      commercialRate: "2.900000000000", previewResult: "290000",
+    };
+    const reverseAmount = resolveRateText("Quiero convertir 100000 VES a COP", [venezuelaToColombia]);
+    expect(reverseAmount?.reply).toContain("100000 VES × 2.900000000000 = 290000 COP");
+    expect(reverseAmount?.reply).not.toContain("= 290000 VES");
   });
 
   it("pide datos, detecta ambigüedad y deja pendiente si no hay ruta", () => {
     expect(resolveRateText("¿Cuál es la tasa?", [currentRate])?.kind).toBe("clarification");
     const other: CurrentRate = { ...currentRate, routeId: "xrr_2", quoteId: "xrq_2", originCountry: "US" };
-    expect(resolveRateText("Tasa USD a VES", [currentRate, other])?.kind).toBe("clarification");
+    expect(resolveRateText("Tasa COP a VES", [currentRate, other])?.kind).toBe("clarification");
     expect(resolveRateText("Tasa EUR a COP", [])?.kind).toBe("pending");
   });
 
@@ -90,5 +114,9 @@ describe("tasas de cambio", () => {
       expect(migration).toContain(`CREATE TABLE "${table}"`);
       expect(migration).toContain(`"organization_id" text NOT NULL`);
     }
+    const correction = readFileSync("drizzle/0023_wealthy_ulik.sql", "utf8");
+    expect(correction).toContain('ADD COLUMN "calculation_operation"');
+    expect(correction).toContain('ADD COLUMN "rounding_precision"');
+    expect(correction).not.toMatch(/\bUPDATE\b/i);
   });
 });

@@ -1310,6 +1310,8 @@ export const exchangeRateRoute = pgTable(
     originCurrency: text("origin_currency").notNull(),
     destinationCountry: text("destination_country").notNull(),
     destinationCurrency: text("destination_currency").notNull(),
+    calculationOperation: text("calculation_operation", { enum: ["multiply", "divide"] }),
+    roundingPrecision: integer("rounding_precision"),
     active: boolean("active").notNull().default(true),
     createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1319,6 +1321,8 @@ export const exchangeRateRoute = pgTable(
     uniqueIndex("exchange_rate_route_org_direction_uq").on(t.organizationId, t.originCountry, t.originCurrency, t.destinationCountry, t.destinationCurrency),
     index("exchange_rate_route_org_active_idx").on(t.organizationId, t.active),
     check("exchange_rate_route_distinct_ck", sql`${t.originCountry} <> ${t.destinationCountry} OR ${t.originCurrency} <> ${t.destinationCurrency}`),
+    check("exchange_rate_route_formula_complete_ck", sql`(${t.calculationOperation} IS NULL AND ${t.roundingPrecision} IS NULL) OR (${t.calculationOperation} IS NOT NULL AND ${t.roundingPrecision} IS NOT NULL)`),
+    check("exchange_rate_route_precision_ck", sql`${t.roundingPrecision} IS NULL OR ${t.roundingPrecision} BETWEEN 0 AND 12`),
   ]
 );
 
@@ -1332,6 +1336,7 @@ export const exchangeRateQuote = pgTable(
     sourceUnits: numeric("source_units", { precision: 30, scale: 12 }).notNull(),
     destinationUnits: numeric("destination_units", { precision: 30, scale: 12 }).notNull(),
     commercialRate: numeric("commercial_rate", { precision: 30, scale: 12 }).notNull(),
+    calculationOperation: text("calculation_operation", { enum: ["multiply", "divide"] }),
     precision: integer("precision").notNull(),
     validFrom: timestamp("valid_from").notNull(),
     validUntil: timestamp("valid_until"),

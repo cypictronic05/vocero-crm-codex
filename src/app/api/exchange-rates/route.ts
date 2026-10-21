@@ -1,6 +1,6 @@
 import { parseBody, withAuth } from "@/lib/api";
 import { exchangeRatesDisabledResponse, exchangeRatesEnabled } from "@/server/exchange-rates/flag";
-import { createExchangeRateDraft, canManageExchangeRates, listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
+import { createExchangeRateDraft, canManageExchangeRates, listExchangeRateRoutes, listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
 import { exchangeRateErrorResponse } from "@/server/exchange-rates/http";
 import { createExchangeRateSchema } from "@/server/exchange-rates/validation";
 
@@ -10,7 +10,8 @@ export const GET = withAuth(async (session) => {
   if (!exchangeRatesEnabled() || !(await organizationRatesEnabled(session.organizationId))) return exchangeRatesDisabledResponse();
   const canManage = await canManageExchangeRates(session);
   const rates = await listExchangeRates(session.organizationId, canManage);
-  return Response.json({ rates, canManage });
+  const routes = await listExchangeRateRoutes(session.organizationId);
+  return Response.json({ rates, routes, canManage });
 });
 
 export const POST = withAuth(async (session, request: Request) => {

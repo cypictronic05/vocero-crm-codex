@@ -1,6 +1,6 @@
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
-import { multiplyDecimal } from "@/server/exchange-rates/decimal";
+import { calculateConversion, operationSymbol } from "@/server/exchange-rates/decimal";
 import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
 import { listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
 
@@ -50,12 +50,16 @@ export function resolveRateText(textValue: string, rates: readonly CurrentRate[]
       ? { kind: "clarification", reply: "¿Desde qué país y moneda envías, y en qué país y moneda deseas recibir?" }
       : { kind: "pending", reply: "No tengo una tasa vigente para esa ruta. Dejé la solicitud pendiente para confirmación humana." };
   }
+  if (!rate.calculationOperation) {
+    return { kind: "pending", reply: "La ruta existe, pero su fórmula comercial aún requiere confirmación del propietario." };
+  }
   const reference = (rate.publishedAt ?? rate.validFrom).toISOString();
-  const base = `${rate.sourceUnits} ${rate.originCurrency} = ${rate.destinationUnits} ${rate.destinationCurrency}. Referencia publicada: ${reference}.`;
+  const symbol = operationSymbol(rate.calculationOperation);
+  const base = `Operación autorizada: ${rate.originCurrency} ${symbol} ${rate.commercialRate} → ${rate.destinationCurrency}. Referencia publicada: ${reference}.`;
   const amount = extractAmount(textValue, rate.originCurrency);
   if (!amount) return { kind: "rate", reply: base };
-  const converted = multiplyDecimal(amount, rate.commercialRate, rate.precision);
-  return { kind: "rate", reply: `${base} ${amount} ${rate.originCurrency} equivalen a ${converted} ${rate.destinationCurrency} con esta tasa.` };
+  const converted = calculateConversion(amount, rate.commercialRate, rate.calculationOperation, rate.precision);
+  return { kind: "rate", reply: `${base} ${amount} ${rate.originCurrency} ${symbol} ${rate.commercialRate} = ${converted} ${rate.destinationCurrency}. Es una estimación de tasa; no confirma una transferencia.` };
 }
 
 /** Resuelve una consulta sin enviar tasas ni texto financiero al LLM. */

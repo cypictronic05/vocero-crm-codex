@@ -1,0 +1,5 @@
+ALTER TABLE "exchange_rate_quote" ADD COLUMN "calculation_operation" text;--> statement-breakpoint
+ALTER TABLE "exchange_rate_route" ADD COLUMN "calculation_operation" text;--> statement-breakpoint
+ALTER TABLE "exchange_rate_route" ADD COLUMN "rounding_precision" integer;--> statement-breakpoint
+ALTER TABLE "exchange_rate_route" ADD CONSTRAINT "exchange_rate_route_formula_complete_ck" CHECK (("exchange_rate_route"."calculation_operation" IS NULL AND "exchange_rate_route"."rounding_precision" IS NULL) OR ("exchange_rate_route"."calculation_operation" IS NOT NULL AND "exchange_rate_route"."rounding_precision" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "exchange_rate_route" ADD CONSTRAINT "exchange_rate_route_precision_ck" CHECK ("exchange_rate_route"."rounding_precision" IS NULL OR "exchange_rate_route"."rounding_precision" BETWEEN 0 AND 12);

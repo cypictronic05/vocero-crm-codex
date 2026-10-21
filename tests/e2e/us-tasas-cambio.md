@@ -7,7 +7,7 @@ Arnés: `scripts/e2e-tasas-cambio.mjs`.
 1. Crear PostgreSQL 16 desechable; nunca usar `nexora_import_20261019`.
 2. Aplicar migraciones hasta 0021, arrancar la app con `REGISTRATION_MODE=bootstrap`,
    `TASAS=on`, `WA_MOCK_ENABLED=true` y URLs de WhatsApp/IA apuntando a mocks.
-3. Aplicar 0022 con `pnpm db:migrate` y ejecutar `pnpm test:e2e:tasas`.
+3. Aplicar 0023 con `pnpm db:migrate`, ejecutar `pnpm test:integration:tasas` y después `pnpm test:e2e:tasas`.
 
 ## Evidencias esperadas
 

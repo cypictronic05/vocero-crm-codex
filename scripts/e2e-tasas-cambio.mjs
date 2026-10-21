@@ -40,26 +40,66 @@ async function main() {
     }
   }
 
+  const formulaConflict = await api("/api/exchange-rates/routes", { method: "POST", body: JSON.stringify({
+    originCountry: "CO", originCurrency: "COP", destinationCountry: "VE", destinationCurrency: "VES",
+    operation: "multiply", precision: 2,
+  }) });
+  ok(formulaConflict.response.status === 422, "CO → VE rechaza MULTIPLY y exige DIVIDE");
+
+  let route = previous.json?.routes?.find((candidate) => candidate.originCountry === "CO" && candidate.originCurrency === "COP" && candidate.destinationCountry === "VE" && candidate.destinationCurrency === "VES");
+  if (!route) {
+    const configured = await api("/api/exchange-rates/routes", { method: "POST", body: JSON.stringify({
+      originCountry: "CO", originCurrency: "COP", destinationCountry: "VE", destinationCurrency: "VES",
+      operation: "divide", precision: 2,
+    }) });
+    ok(configured.response.status === 201 && configured.json?.route?.calculationOperation === "divide", "owner configura CO → VE como DIVIDE una sola vez");
+    route = configured.json.route;
+  } else {
+    ok(route.calculationOperation === "divide" && route.roundingPrecision === 2, "ruta CO → VE conserva fórmula owner");
+  }
+  const immutable = await api("/api/exchange-rates/routes", { method: "POST", body: JSON.stringify({
+    originCountry: "CO", originCurrency: "COP", destinationCountry: "VE", destinationCurrency: "VES",
+    operation: "divide", precision: 2,
+  }) });
+  ok(immutable.response.status === 409, "la fórmula configurada no puede modificarse en la gestión diaria");
+
   const now = new Date();
   const draft = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
-    originCountry: "CO", originCurrency: "USD", destinationCountry: "VE", destinationCurrency: "VES",
-    sourceUnits: "1", destinationUnits: "39.12", commercialRate: "39.12", precision: 2,
+    routeId: route.id, commercialRate: "3.68",
     validFrom: now.toISOString(), validUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
   }) });
-  ok(draft.response.status === 201 && draft.json?.quote?.status === "draft", "borrador creado sin publicar");
+  ok(draft.response.status === 201 && draft.json?.quote?.status === "draft" && draft.json?.quote?.calculationOperation === "divide", "borrador copia fórmula PostgreSQL sin publicar");
 
   const invalid = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
-    originCountry: "CO", originCurrency: "USD", destinationCountry: "PE", destinationCurrency: "PEN",
-    sourceUnits: "1", destinationUnits: "-1", commercialRate: "-1", precision: 2,
+    routeId: route.id, commercialRate: "-1",
     validFrom: now.toISOString(), validUntil: null,
   }) });
   ok(invalid.response.status === 422, "valores negativos rechazados");
 
   const quoteId = draft.json.quote.id;
-  const published = await api(`/api/exchange-rates/${quoteId}/publish`, { method: "POST" });
-  ok(published.response.ok && published.json?.quote?.status === "published", "publicación separada y autorizada");
+  const contender = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
+    routeId: route.id, commercialRate: "3.69",
+    validFrom: now.toISOString(), validUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+  }) });
+  ok(contender.response.status === 201, "segundo borrador solapado creado para probar concurrencia");
+  const publications = await Promise.all([
+    api(`/api/exchange-rates/${quoteId}/publish`, { method: "POST" }),
+    api(`/api/exchange-rates/${contender.json.quote.id}/publish`, { method: "POST" }),
+  ]);
+  ok(publications.filter(({ response }) => response.ok).length === 1 && publications.filter(({ response }) => response.status === 409).length === 1, "publicaciones concurrentes dejan una sola tasa solapada");
+  const publishedId = publications[0].response.ok ? quoteId : contender.json.quote.id;
   const current = await api("/api/exchange-rates");
-  ok(current.response.ok && current.json?.rates?.some((rate) => rate.quoteId === quoteId), "tasa vigente consultable");
+  ok(current.response.ok && current.json?.rates?.some((rate) => rate.quoteId === publishedId && rate.calculationOperation === "divide"), "tasa vigente conserva fórmula PostgreSQL");
+
+  const expiredDraft = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
+    routeId: route.id, commercialRate: "3.67",
+    validFrom: new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString(),
+    validUntil: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+  }) });
+  const expiredPublished = await api(`/api/exchange-rates/${expiredDraft.json.quote.id}/publish`, { method: "POST" });
+  ok(expiredPublished.response.ok, "una vigencia histórica puede publicarse sin desplazar la tasa actual");
+  const expiredDisabled = await api(`/api/exchange-rates/${expiredDraft.json.quote.id}/disable`, { method: "POST" });
+  ok(expiredDisabled.response.ok && expiredDisabled.json?.quote?.status === "disabled", "tasa expirada puede desactivarse con auditoría");
 
   const browser = await chromium.launch({
     headless: true,
@@ -70,7 +110,7 @@ async function main() {
     const page = await context.newPage();
     await page.goto(`${BASE}/exchange-rates`);
     ok(await page.getByRole("heading", { name: "Tasas de cambio" }).isVisible(), "pantalla real visible");
-    ok(await page.getByText("1.000000000000 USD = 39.120000000000 VES").last().isVisible(), "tarjeta muestra unidades exactas");
+    ok(await page.getByText(/100000 COP ÷ 3\.680000000000 = 27173\.91 VES/).last().isVisible(), "vista previa exacta DIVIDE visible antes de publicar");
     if (process.env.E2E_SCREENSHOT) {
       await page.screenshot({ path: process.env.E2E_SCREENSHOT, fullPage: true });
     }

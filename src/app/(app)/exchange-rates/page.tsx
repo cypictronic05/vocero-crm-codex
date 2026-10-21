@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { ExchangeRatesClient } from "@/components/exchange-rates/exchange-rates-client";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
-import { canManageExchangeRates, getExchangeRateSettings, listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
+import { canManageExchangeRates, getExchangeRateSettings, listExchangeRateRoutes, listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +14,7 @@ export default async function ExchangeRatesPage() {
   if (!enabled && session.role !== "owner") notFound();
   const canManage = enabled && await canManageExchangeRates(session);
   const rates = enabled ? await listExchangeRates(session.organizationId, canManage) : [];
+  const routes = enabled ? await listExchangeRateRoutes(session.organizationId) : [];
   const settings = session.role === "owner" ? await getExchangeRateSettings(session.organizationId) : null;
   return (
     <ExchangeRatesClient
@@ -27,6 +28,7 @@ export default async function ExchangeRatesPage() {
         createdAt: rate.createdAt.toISOString(),
         publishedAt: rate.publishedAt?.toISOString() ?? null,
       }))}
+      initialRoutes={routes}
       supervisors={settings?.supervisors ?? []}
     />
   );
