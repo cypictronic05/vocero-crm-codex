@@ -536,7 +536,7 @@ export async function ingestInboundMessage(input: {
     data: { conversation: { id: conversation.id } },
   });
 
-  await maybeRunAgentTurn(conversation.id, organizationId, message.id);
+  await maybeRunAgentTurn(conversation.id, organizationId, message.id, message.text);
 }
 
 function toDate(timestamp: string): Date {

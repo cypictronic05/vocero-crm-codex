@@ -3,6 +3,17 @@ import { chromium } from "playwright";
 const BASE = process.env.APP_BASE_URL ?? "http://127.0.0.1:3000";
 let cookie = "";
 let checks = 0;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function hasta(condition, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    const value = await condition();
+    if (value) return value;
+    await sleep(250);
+  }
+  return null;
+}
 
 function ok(value, message) {
   checks += 1;
@@ -115,6 +126,45 @@ async function main() {
   ok(calculated.response.ok && calculated.json?.calculation?.presentation?.formula === currentRate.presentation.formula, "calculadora usa la misma tasa vigente y fórmula PostgreSQL");
   const preview = await api("/api/exchange-rates/preview", { method: "POST", body: JSON.stringify({ routeId: route.id, commercialRate: "3,53", amount: "100000" }) });
   ok(preview.response.ok && preview.json?.preview?.presentation?.formula === "100.000 COP ÷ 3,53 = 28.328,61 VES", "vista previa exacta disponible antes de publicar");
+  const conversationalCalculation = await api("/api/exchange-rates/calculate", { method: "POST", body: JSON.stringify({ routeId: route.id, amount: "200000" }) });
+  const expectedConversationFormula = conversationalCalculation.json?.calculation?.presentation?.formula?.replace(/ = ([^=]+)$/, " = *$1*");
+
+  const phoneNumberId = "PN-TASAS-E2E";
+  const activeSchedule = await api("/api/settings/ai/schedule", { method: "PUT", body: JSON.stringify({
+    startMinute: 0, endMinute: 1439, timeZone: "UTC",
+  }) });
+  ok(activeSchedule.response.ok, "horario activo configurado solo para la organización ficticia");
+  const enabledAgent = await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: true }) });
+  ok(enabledAgent.response.ok, "agente activado únicamente en la organización ficticia");
+  const whatsapp = await api("/api/settings/whatsapp", { method: "PUT", body: JSON.stringify({
+    wabaId: "WABA-TASAS-E2E", phoneNumberId, token: "token-ficticio-tasas-e2e",
+  }) });
+  ok(whatsapp.response.ok, "WhatsApp ficticio conectado exclusivamente al mock local");
+  await api("/api/dev/wa-mock/outbox", { method: "DELETE" });
+  const sender = "573009990001";
+  const routeQuestion = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
+    phoneNumberId, from: sender, name: "Cliente Tasas E2E",
+    text: "¿Cuál es la tasa de Colombia a Venezuela?", waMessageId: "wamid.tasas.contexto.1",
+  }) });
+  ok(routeQuestion.response.ok, "consulta de ruta simulada entra por WhatsApp");
+  const initialOutbox = await hasta(async () => {
+    const entries = (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+    return entries.some((entry) => entry.body?.text?.body?.includes("Colombia → 🇻🇪 Venezuela")) ? entries : null;
+  });
+  ok(Boolean(initialOutbox), "el backend responde la tasa vigente sin proveedor externo");
+  const beforeAmount = initialOutbox?.length ?? 0;
+  const amountQuestion = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
+    phoneNumberId, from: sender, name: "Cliente Tasas E2E",
+    text: "¿Cuánto recibe mi familiar si envío 200 mil?", waMessageId: "wamid.tasas.importe.2",
+  }) });
+  ok(amountQuestion.response.ok, "consulta natural con importe entra por WhatsApp");
+  const amountOutbox = await hasta(async () => {
+    const entries = (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+    return entries.length > beforeAmount && entries.some((entry) => entry.body?.text?.body?.includes(expectedConversationFormula)) ? entries : null;
+  });
+  const newReplies = amountOutbox?.slice(beforeAmount) ?? [];
+  ok(newReplies.length === 1, "el cálculo contextual genera una sola respuesta");
+  ok(newReplies[0]?.body?.text?.body?.includes("Monto estimado, sujeto a confirmación"), "la respuesta amigable conserva el aviso de estimación");
 
   const expiredDraft = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
     routeId: route.id, commercialRate: "3.67",

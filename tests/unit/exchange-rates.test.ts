@@ -7,7 +7,7 @@ import { calculateExchangeRateSchema, configureExchangeRateRouteSchema, createEx
 import { requiredOperationForRoute } from "@/server/exchange-rates/rules";
 import { buildExchangeRatePresentation, formatDecimalEs, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
 import { appNavGroups } from "@/lib/nav";
-import { resolveRateText, type CurrentRate } from "@/server/exchange-rates/conversation";
+import { isExchangeRateIntent, resolveRateText, type CurrentRate } from "@/server/exchange-rates/conversation";
 
 const valid = {
   routeId: "xrr_route", commercialRate: "3.68",
@@ -102,6 +102,65 @@ describe("tasas de cambio", () => {
     const reverseAmount = resolveRateText("Quiero convertir 100000 VES a COP", [venezuelaToColombia]);
     expect(reverseAmount?.reply).toContain("100.000 VES × 2,9 = *290.000 COP*");
     expect(reverseAmount?.reply).not.toContain("= *290.000 VES*");
+  });
+
+  it("interpreta importes naturales y usa la ruta reciente sin consultar al LLM", () => {
+    const context = ["La ruta que necesito es Colombia a Venezuela"];
+    expect(isExchangeRateIntent("¿Cuánto son 50 mil pesos?")).toBe(true);
+    expect(resolveRateText("¿Cuánto son 50 mil pesos?", [currentRate], context)?.reply)
+      .toContain("50.000 COP ÷ 3,68 = *13.586,96 VES*");
+    expect(resolveRateText("100 mil COP", [currentRate])?.reply)
+      .toContain("100.000 COP ÷ 3,68 = *27.173,91 VES*");
+    expect(resolveRateText("50000 pesos colombianos", [currentRate])?.reply)
+      .toContain("50.000 COP ÷ 3,68 = *13.586,96 VES*");
+    expect(resolveRateText("¿Cuánto recibe mi familiar si envío 200 mil?", [currentRate], context)?.reply)
+      .toContain("200.000 COP ÷ 3,68 = *54.347,83 VES*");
+  });
+
+  it("reconoce dólares y solicita datos concretos cuando no puede fijar ruta o importe", () => {
+    const usdRate: CurrentRate = {
+      ...currentRate,
+      routeId: "xrr_us_co", quoteId: "xrq_us_co",
+      originCountry: "US", originCurrency: "USD",
+      destinationCountry: "CO", destinationCurrency: "COP",
+      routeOperation: "multiply", calculationOperation: "multiply",
+      commercialRate: "4000.000000000000", previewResult: "400000000",
+    };
+    expect(resolveRateText("100 dólares", [usdRate])?.reply)
+      .toContain("100 USD × 4.000 = *400.000 COP*");
+    expect(resolveRateText("¿Cuánto recibe mi familiar si envío?", [currentRate])?.reply)
+      .toContain("¿Qué cantidad deseas enviar");
+    expect(resolveRateText("Quiero convertir 0 COP a VES", [currentRate])?.reply)
+      .toContain("importe positivo válido");
+  });
+
+  it("no infiere pesos ambiguos y el contexto solo desambigua una ruta vigente", () => {
+    const chileRate: CurrentRate = {
+      ...currentRate,
+      routeId: "xrr_cl_ve", quoteId: "xrq_cl_ve",
+      originCountry: "CL", originCurrency: "CLP",
+      routeOperation: "multiply", calculationOperation: "multiply",
+      commercialRate: "0.040000000000", previewResult: "4000",
+    };
+    const rates = [currentRate, chileRate];
+    expect(resolveRateText("¿Cuánto son 50 mil pesos?", rates)?.kind).toBe("clarification");
+    expect(resolveRateText("¿Cuánto son 50 mil pesos?", rates, ["Colombia a Venezuela"])?.reply)
+      .toContain("50.000 COP ÷ 3,68 = *13.586,96 VES*");
+    expect(resolveRateText("¿Cuánto son 50 mil pesos?", rates, ["Chile a Venezuela"])?.reply)
+      .toContain("50.000 CLP × 0,04 = *2.000 VES*");
+  });
+
+  it("resuelve el cálculo antes del LLM y termina el turno para no duplicar respuestas", () => {
+    const pipeline = readFileSync("src/server/ai/pipeline.ts", "utf8");
+    const trigger = readFileSync("src/server/ai/trigger.ts", "utf8");
+    const resolver = pipeline.indexOf("await resolveRateConversation");
+    const retorno = pipeline.indexOf("return leido;", resolver);
+    const modelo = pipeline.indexOf("await chatJson", resolver);
+    expect(resolver).toBeGreaterThan(-1);
+    expect(retorno).toBeGreaterThan(resolver);
+    expect(modelo).toBeGreaterThan(retorno);
+    expect(trigger).toContain("isExchangeRateIntent(messageText)");
+    expect(trigger).toContain("organizationRatesEnabled(organizationId)");
   });
 
   it("pide datos, detecta ambigüedad y deja pendiente si no hay ruta", () => {

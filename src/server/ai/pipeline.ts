@@ -178,12 +178,10 @@ export async function runAgentTurn(
     return;
   }
 
-  // ¿Esta organización tiene IA? Lo guardado en Ajustes → IA, o si no, el
-  // entorno. Sin proveedor, o con la llave pausada por el proveedor, el
-  // mensaje se queda en la bandeja para que lo atienda una persona — y el
-  // dueño ve el motivo en el banner y en Ajustes → IA. Va ANTES de cualquier
-  // efecto (traspasos por ventana o por frase): sin IA no hay turno.
-  if (!(await isAiConfiguredFor(organizationId))) return;
+  // Una cotización vigente se resuelve de forma determinista aunque no haya
+  // proveedor LLM. Conservamos el estado para cortar el turno antes de todo
+  // comportamiento que sí dependa del modelo.
+  const aiConfigured = await isAiConfiguredFor(organizationId);
 
   // Condiciones de silencio: handoff activo o IA apagada en la conversación.
   if (!conversationAllowsAi(conversation)) return;
@@ -300,6 +298,10 @@ export async function runAgentTurn(
       conversationId,
       messageId: lastInbound.id,
       text: lastInbound.text,
+      contextTexts: history
+        .filter((message) => message.id !== lastInbound.id && message.text)
+        .slice(-8)
+        .map((message) => message.text!),
       at: opciones.at,
     });
     if (rateResult) {
@@ -322,6 +324,11 @@ export async function runAgentTurn(
     }
     return leido;
   }
+
+  // Sin proveedor, o con la llave pausada, solo estaba autorizado el camino
+  // determinista de tasas anterior. El resto permanece en la bandeja, igual
+  // que antes de Fase 5A.3.
+  if (!aiConfigured) return leido;
 
   // Patrón de respaldo ANTES del LLM (FR-022). Avisa y traspasa, en el mismo
   // orden que el camino del modelo (`farewell` y luego handoff): callar ante

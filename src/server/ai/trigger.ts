@@ -4,6 +4,9 @@ import { despachoActivo } from "@/server/brains/config";
 import { despacharAlCerebro } from "@/server/dispatch/encolar";
 import { isAiScheduleActive } from "@/lib/ai-schedule";
 import { getOrganizationAiSchedule } from "@/server/ai/schedule";
+import { isExchangeRateIntent } from "@/server/exchange-rates/conversation";
+import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
+import { organizationRatesEnabled } from "@/server/exchange-rates/service";
 
 /**
  * Punto de enganche del turno tras la ingesta de un mensaje entrante REAL (las
@@ -26,6 +29,7 @@ export async function maybeRunAgentTurn(
   conversationId: string,
   organizationId: string,
   messageId: string,
+  messageText: string | null = null,
   at: Date = new Date()
 ): Promise<void> {
   // 028 — De día la conversación ya fue asignada a una persona por la fase 2.
@@ -36,6 +40,17 @@ export async function maybeRunAgentTurn(
     await despacharAlCerebro(conversationId, organizationId, messageId);
     return;
   }
-  if (!(await isAiConfiguredFor(organizationId))) return;
+  const aiConfigured = await isAiConfiguredFor(organizationId);
+  if (!aiConfigured) {
+    // Las cotizaciones publicadas son una capacidad determinista: no dependen
+    // de un proveedor LLM. Sin IA solo abrimos turno para esta intención y
+    // únicamente cuando TASAS está activo para la organización.
+    if (
+      !messageText ||
+      !isExchangeRateIntent(messageText) ||
+      !exchangeRatesEnabled() ||
+      !(await organizationRatesEnabled(organizationId))
+    ) return;
+  }
   scheduleAgentTurn(conversationId, messageId);
 }

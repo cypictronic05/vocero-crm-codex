@@ -2,7 +2,7 @@
 
 **Feature Branch**: `feature/nexora-turnos`
 **Created**: 2026-10-21
-**Status**: Fase 5A.2 — rediseño comercial y respuestas naturales en validación
+**Status**: Fase 5A.3 — cálculo conversacional de remesas en validación
 
 ## Problema
 
@@ -75,6 +75,20 @@ cliente. La configuración inmutable y la auditoría quedan en secciones avanzad
 4. La respuesta de WhatsApp usa nombres, banderas y formato básico, no IDs,
    timestamps ISO, JSON ni términos de implementación.
 5. La misma función de servidor alimenta IA, vista previa y cálculo administrativo.
+
+### US6 — Cálculo conversacional con importes naturales (P1)
+
+Antes del LLM, el servidor reconoce cantidades como «50 mil pesos» o «100
+dólares». La ruta se obtiene de la frase actual o del contexto reciente solo si
+es inequívoca; operación, tasa y vigencia siempre proceden de PostgreSQL.
+
+1. Una estimación informativa se calcula sin traspaso humano.
+2. Si falta cantidad, origen o destino, se pregunta únicamente el dato faltante.
+3. Una moneda ambigua no se asigna por intuición ni mediante el modelo.
+4. Confirmar pagos, transferencias, comprobantes, fondos o recepción conserva el
+   traspaso de seguridad existente.
+5. El resolvedor termina el turno tras una respuesta determinista y evita una
+   segunda respuesta del LLM.
 
 ## Casos límite
 

@@ -138,6 +138,26 @@ describe("supervisión y protección concurrente", () => {
     })).toBe("transaction_validation");
   });
 
+  it("distingue una estimación con importe de una validación de transferencia", () => {
+    const input = {
+      knowledge: [],
+      at: new Date("2026-10-19T08:00:00Z"),
+      timeZone: "America/Bogota",
+    };
+    expect(financialReviewReason({
+      ...input,
+      text: "¿Cuánto recibe mi familiar por una transferencia de 50 mil pesos?",
+    })).toBe("rate_not_authorized_or_stale");
+    expect(financialReviewReason({
+      ...input,
+      text: "¿Ya recibieron mi transferencia de 50 mil pesos?",
+    })).toBe("transaction_validation");
+    expect(financialReviewReason({
+      ...input,
+      text: "Confirma el comprobante del pago de 100 dólares",
+    })).toBe("transaction_validation");
+  });
+
   it("el knowledge base nunca autoriza una tasa comercial", () => {
     const at = new Date("2026-10-19T08:00:00Z");
     const current = [{

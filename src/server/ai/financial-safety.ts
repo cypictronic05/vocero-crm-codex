@@ -1,3 +1,5 @@
+import { isExchangeRateIntent } from "@/server/exchange-rates/conversation";
+
 type KnowledgeEntry = {
   question: string | null;
   answer: string | null;
@@ -8,11 +10,10 @@ type KnowledgeEntry = {
 export const FINANCIAL_REVIEW_ACK =
   "Esa validación requiere una persona del equipo. Dejé la solicitud pendiente para revisión humana.";
 
-const RATE_REQUEST = /\b(tasa|tipo\s+de\s+cambio|cotizaci[oó]n)\b/i;
 const TRANSACTION =
   /\b(pago|transferencia|dep[oó]sito|comprobante|operaci[oó]n|fondos?)\b/i;
 const VALIDATION =
-  /\b(confirm\w*|verific\w*|aprob\w*|recib\w*|lleg\w*|proces\w*|estado|disponib\w*)\b/i;
+  /\b(confirm\w*|verific\w*|aprob\w*|lleg[oó]|procesad\w*|estado|disponib\w*)\b|\bya\s+recib\w*|\bse\s+recibi[oó]/i;
 
 /**
  * Conservado como guardarraíl compatible: el KB dejó de ser fuente autorizada
@@ -46,7 +47,7 @@ export function financialReviewReason(input: {
     return "transaction_validation";
   }
   if (
-    RATE_REQUEST.test(input.text) &&
+    isExchangeRateIntent(input.text) &&
     !hasAuthorizedCurrentRate(input.knowledge, input.at, input.timeZone)
   ) {
     return "rate_not_authorized_or_stale";

@@ -19,6 +19,12 @@ Arnés: `scripts/e2e-tasas-cambio.mjs`.
   moneda y funciona como control nativo de teclado/móvil.
 - La calculadora y la vista previa de WhatsApp consumen el generador del servidor;
   no infieren la operación ni reutilizan una tasa vencida.
+- Un mensaje como «¿Cuánto son 50 mil pesos?» reutiliza una ruta inequívoca del
+  contexto reciente, consulta PostgreSQL y responde el importe exacto sin LLM.
+- «100 mil COP» y nombres como «pesos colombianos» se interpretan como importes;
+  una moneda o ruta ambigua produce una pregunta concreta, no una tasa inventada.
+- Confirmaciones de transferencias, pagos o comprobantes continúan en revisión
+  humana aunque incluyan una cantidad.
 - Antes de guardar/publicar, la supervisora ve el cálculo exacto con la nueva tasa.
 - Un decimal negativo recibe 422.
 - Publicación solapada recibe 409 y conserva la versión anterior.

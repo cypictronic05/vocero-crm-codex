@@ -8,6 +8,7 @@ import {
   listExchangeRates,
   publishExchangeRate,
 } from "@/server/exchange-rates/service";
+import { resolveRateConversation, resolveRateText } from "@/server/exchange-rates/conversation";
 
 const organizations = ["org_tasas_a", "org_tasas_b"];
 const users = ["usr_tasas_owner", "usr_tasas_supervisor", "usr_tasas_member", "usr_tasas_other"];
@@ -91,6 +92,15 @@ async function main() {
   const currentB = await listExchangeRates(organizations[1], false);
   ok(currentA.length === 1 && currentA[0]?.calculationOperation === "divide" && currentA[0]?.previewResult === "27173.91", "IA/equipo obtienen solo la fórmula publicada y vigente de su organización");
   ok(currentB.length === 0, "la consulta vigente mantiene aislamiento entre organizaciones");
+
+  const naturalAmount = await resolveRateConversation({
+    organizationId: organizations[0], conversationId: "cv_ficticia_tasas",
+    messageId: "msg_ficticio_tasas", text: "¿Cuánto son 50 mil pesos?",
+    contextTexts: ["Necesito enviar de Colombia a Venezuela"],
+  });
+  ok(naturalAmount?.kind === "rate" && naturalAmount.reply.includes("50.000 COP ÷ 3,68 = *13.586,96 VES*"), "importe natural usa contexto, tasa y fórmula PostgreSQL sin LLM");
+  const isolatedAmount = resolveRateText("100 mil COP", currentB);
+  ok(isolatedAmount?.kind !== "rate" && !isolatedAmount?.reply.includes("3,68"), "otra organización no recibe la tasa ni el cálculo");
   console.log(`\n${checks} comprobaciones PostgreSQL correctas.`);
 }
 
