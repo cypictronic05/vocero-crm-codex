@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { calculateConversion, divideDecimal, multiplyDecimal, parsePositiveDecimal, sameDecimal } from "@/server/exchange-rates/decimal";
 import { parseExchangeRatesFlag } from "@/server/exchange-rates/flag";
 import { roleCanManageExchangeRates } from "@/server/exchange-rates/service";
-import { configureExchangeRateRouteSchema, createExchangeRateSchema } from "@/server/exchange-rates/validation";
+import { calculateExchangeRateSchema, configureExchangeRateRouteSchema, createExchangeRateSchema, previewExchangeRateSchema } from "@/server/exchange-rates/validation";
 import { requiredOperationForRoute } from "@/server/exchange-rates/rules";
+import { buildExchangeRatePresentation, formatDecimalEs, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
 import { appNavGroups } from "@/lib/nav";
 import { resolveRateText, type CurrentRate } from "@/server/exchange-rates/conversation";
 
@@ -61,6 +62,18 @@ describe("tasas de cambio", () => {
     expect(calculateConversion("100000", "2.90", "multiply", 2)).toBe("290000");
   });
 
+  it("presenta importes comerciales legibles sin perder precisión", () => {
+    expect(formatDecimalEs("3.680000000000")).toBe("3,68");
+    expect(formatDecimalEs("27173.910000")).toBe("27.173,91");
+    expect(normalizeLocalizedAmount("100.000,50")).toBe("100000.50");
+    expect(calculateExchangeRateSchema.parse({ routeId: "xrr_1", amount: "100.000" }).amount).toBe("100000");
+    expect(previewExchangeRateSchema.safeParse({ routeId: "xrr_1", commercialRate: "3,68", amount: "100000" }).success).toBe(true);
+    const presentation = buildExchangeRatePresentation({ ...currentRate, calculationOperation: "divide" });
+    expect(presentation.formula).toBe("100.000 COP ÷ 3,68 = 27.173,91 VES");
+    expect(presentation.customerMessage).toContain("La tasa de hoy es *3,68*");
+    expect(presentation.customerMessage).not.toMatch(/2026-|precision|Operación autorizada/i);
+  });
+
   it("owner administra, supervisor requiere capacidad y member nunca administra", () => {
     expect(roleCanManageExchangeRates("owner", false)).toBe(true);
     expect(roleCanManageExchangeRates("supervisor", false)).toBe(false);
@@ -71,10 +84,11 @@ describe("tasas de cambio", () => {
   it("resuelve IA con tasa vigente e importe sin confirmar operaciones", () => {
     const plain = resolveRateText("¿Cuál es la tasa de COP a VES?", [currentRate]);
     expect(plain?.kind).toBe("rate");
-    expect(plain?.reply).toContain("COP ÷ 3.680000000000 → VES");
-    const amount = resolveRateText("Quiero convertir 100000 COP a VES", [currentRate]);
-    expect(amount?.reply).toContain("100000 COP ÷ 3.680000000000 = 27173.91 VES");
+    expect(plain?.reply).toContain("100.000 COP ÷ 3,68 = *27.173,91 VES*");
+    const amount = resolveRateText("Quiero convertir 100.000 COP a VES", [currentRate]);
+    expect(amount?.reply).toContain("100.000 COP ÷ 3,68 = *27.173,91 VES*");
     expect(amount?.reply.toLowerCase()).not.toContain("transferencia confirmada");
+    expect(amount?.reply).not.toMatch(/2026-|precision|quote|operation/i);
 
     const venezuelaToColombia: CurrentRate = {
       ...currentRate,
@@ -86,8 +100,8 @@ describe("tasas de cambio", () => {
       commercialRate: "2.900000000000", previewResult: "290000",
     };
     const reverseAmount = resolveRateText("Quiero convertir 100000 VES a COP", [venezuelaToColombia]);
-    expect(reverseAmount?.reply).toContain("100000 VES × 2.900000000000 = 290000 COP");
-    expect(reverseAmount?.reply).not.toContain("= 290000 VES");
+    expect(reverseAmount?.reply).toContain("100.000 VES × 2,9 = *290.000 COP*");
+    expect(reverseAmount?.reply).not.toContain("= *290.000 VES*");
   });
 
   it("pide datos, detecta ambigüedad y deja pendiente si no hay ruta", () => {

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `feature/nexora-turnos`
 **Created**: 2026-10-21
-**Status**: Corrección 5A.1 en implementación
+**Status**: Fase 5A.2 — rediseño comercial y respuestas naturales en validación
 
 ## Problema
 
@@ -61,6 +61,20 @@ ruta publicada y vigente de la organización y responde de forma determinista.
 Con `TASAS` apagado la navegación y APIs devuelven la misma superficie previa
 (404). Encendido, cada organización debe activar además su módulo; ninguna
 consulta o evento cruza `organization_id`.
+
+### US5 — Operación comercial clara (P1)
+
+La pantalla prioriza consulta, cálculo y actualización diaria. Muestra tarjetas
+legibles, búsqueda de rutas, una calculadora y la respuesta exacta que recibirá el
+cliente. La configuración inmutable y la auditoría quedan en secciones avanzadas.
+
+1. Tasas y resultados se presentan con separadores españoles, sin ceros técnicos.
+2. Toda fórmula nombra explícitamente ambas monedas y la moneda del resultado.
+3. Owner ve configuración avanzada; supervisora autorizada solo tasa/vigencia;
+   member consulta y calcula.
+4. La respuesta de WhatsApp usa nombres, banderas y formato básico, no IDs,
+   timestamps ISO, JSON ni términos de implementación.
+5. La misma función de servidor alimenta IA, vista previa y cálculo administrativo.
 
 ## Casos límite
 

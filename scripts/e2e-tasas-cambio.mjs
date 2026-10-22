@@ -63,7 +63,25 @@ async function main() {
   }) });
   ok(immutable.response.status === 409, "la fórmula configurada no puede modificarse en la gestión diaria");
 
+  let reverseRoute = previous.json?.routes?.find((candidate) => candidate.originCountry === "VE" && candidate.originCurrency === "VES" && candidate.destinationCountry === "CO" && candidate.destinationCurrency === "COP");
+  if (!reverseRoute) {
+    const configured = await api("/api/exchange-rates/routes", { method: "POST", body: JSON.stringify({
+      originCountry: "VE", originCurrency: "VES", destinationCountry: "CO", destinationCurrency: "COP",
+      operation: "multiply", precision: 2,
+    }) });
+    ok(configured.response.status === 201, "owner agrega una segunda ruta VE → CO para el selector");
+    reverseRoute = configured.json.route;
+  } else {
+    ok(reverseRoute.calculationOperation === "multiply", "ruta VE → CO conserva MULTIPLY");
+  }
+
   const now = new Date();
+  const reverseDraft = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
+    routeId: reverseRoute.id, commercialRate: "2.90",
+    validFrom: now.toISOString(), validUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+  }) });
+  const reversePublished = await api(`/api/exchange-rates/${reverseDraft.json.quote.id}/publish`, { method: "POST" });
+  ok(reversePublished.response.ok, "segunda ruta MULTIPLY queda disponible para consulta");
   const draft = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
     routeId: route.id, commercialRate: "3.68",
     validFrom: now.toISOString(), validUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
@@ -90,11 +108,18 @@ async function main() {
   const publishedId = publications[0].response.ok ? quoteId : contender.json.quote.id;
   const current = await api("/api/exchange-rates");
   ok(current.response.ok && current.json?.rates?.some((rate) => rate.quoteId === publishedId && rate.calculationOperation === "divide"), "tasa vigente conserva fórmula PostgreSQL");
+  const currentRate = current.json?.currentRates?.find((rate) => rate.quoteId === publishedId);
+  ok(currentRate?.presentation?.formula?.endsWith(" VES") && !currentRate.presentation.displayRate.includes("000000"), "API comercial expresa destino VES y oculta ceros técnicos");
+
+  const calculated = await api("/api/exchange-rates/calculate", { method: "POST", body: JSON.stringify({ routeId: route.id, amount: "100.000" }) });
+  ok(calculated.response.ok && calculated.json?.calculation?.presentation?.formula === currentRate.presentation.formula, "calculadora usa la misma tasa vigente y fórmula PostgreSQL");
+  const preview = await api("/api/exchange-rates/preview", { method: "POST", body: JSON.stringify({ routeId: route.id, commercialRate: "3,53", amount: "100000" }) });
+  ok(preview.response.ok && preview.json?.preview?.presentation?.formula === "100.000 COP ÷ 3,53 = 28.328,61 VES", "vista previa exacta disponible antes de publicar");
 
   const expiredDraft = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
     routeId: route.id, commercialRate: "3.67",
-    validFrom: new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString(),
-    validUntil: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+    validFrom: "2020-01-01T00:00:00.000Z",
+    validUntil: "2020-01-02T00:00:00.000Z",
   }) });
   const expiredPublished = await api(`/api/exchange-rates/${expiredDraft.json.quote.id}/publish`, { method: "POST" });
   ok(expiredPublished.response.ok, "una vigencia histórica puede publicarse sin desplazar la tasa actual");
@@ -106,13 +131,27 @@ async function main() {
     ...(process.env.PLAYWRIGHT_BROWSER_PATH ? { executablePath: process.env.PLAYWRIGHT_BROWSER_PATH } : {}),
   });
   try {
-    const context = await browser.newContext({ extraHTTPHeaders: { cookie } });
+    const context = await browser.newContext({ extraHTTPHeaders: { cookie }, viewport: { width: 1600, height: 1000 } });
     const page = await context.newPage();
     await page.goto(`${BASE}/exchange-rates`);
     ok(await page.getByRole("heading", { name: "Tasas de cambio" }).isVisible(), "pantalla real visible");
-    ok(await page.getByText(/100000 COP ÷ 3\.680000000000 = 27173\.91 VES/).last().isVisible(), "vista previa exacta DIVIDE visible antes de publicar");
+    ok(await page.getByLabel("Ruta seleccionada").isVisible() && await page.getByPlaceholder("País o moneda").isVisible(), "selector buscable de rutas accesible");
+    ok(await page.getByLabel("Ruta seleccionada").locator("option").count() >= 3, "selector carga múltiples rutas desde PostgreSQL");
+    ok(await page.getByText(/Ver todas las tasas vigentes \(2\)/).isVisible(), "resumen compacto permite mostrar todas las tasas");
+    ok(await page.getByText(currentRate.presentation.formula, { exact: true }).first().isVisible(), "tarjeta comercial muestra fórmula exacta y moneda destino");
+    ok(await page.getByRole("heading", { name: "Vista previa · WhatsApp" }).isVisible(), "vista previa de WhatsApp usa la respuesta del servidor");
+    ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "escritorio sin desbordamiento horizontal");
     if (process.env.E2E_SCREENSHOT) {
       await page.screenshot({ path: process.env.E2E_SCREENSHOT, fullPage: true });
+      await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+      await page.screenshot({ path: process.env.E2E_SCREENSHOT.replace(/(\.[^.]+)$/, "-dark$1"), fullPage: true });
+      const mobileContext = await browser.newContext({ extraHTTPHeaders: { cookie }, viewport: { width: 390, height: 844 } });
+      const mobilePage = await mobileContext.newPage();
+      await mobilePage.goto(`${BASE}/exchange-rates`);
+      ok(await mobilePage.getByRole("heading", { name: "Tasas de cambio" }).isVisible(), "vista móvil carga con navegación cerrada");
+      ok(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "móvil sin desbordamiento horizontal");
+      await mobilePage.screenshot({ path: process.env.E2E_SCREENSHOT.replace(/(\.[^.]+)$/, "-mobile$1"), fullPage: true });
+      await mobileContext.close();
     }
   } finally {
     await browser.close();

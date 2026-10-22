@@ -1,172 +1,61 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Clock3, History } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, ArrowRight, Calculator, CheckCircle2, Clock3, History, Search, Send, Settings2, ShieldCheck } from "lucide-react";
 
-type Rate = {
-  routeId: string; quoteId: string; originCountry: string; originCurrency: string;
-  destinationCountry: string; destinationCurrency: string; active: boolean;
-  version: number; sourceUnits: string; destinationUnits: string; commercialRate: string;
-  routeOperation: "multiply" | "divide" | null; roundingPrecision: number | null;
-  calculationOperation: "multiply" | "divide" | null;
-  precision: number; previewAmount: string | null; previewResult: string | null;
-  validFrom: string; validUntil: string | null;
-  status: "draft" | "published" | "disabled"; createdByUserId: string;
-  createdByName: string; publishedByUserId: string | null; publishedByName: string | null;
-  createdAt: string; publishedAt: string | null;
-};
-
-type Route = {
-  id: string; originCountry: string; originCurrency: string;
-  destinationCountry: string; destinationCurrency: string;
-  calculationOperation: "multiply" | "divide" | null;
-  roundingPrecision: number | null; active: boolean;
-};
-
+type Operation = "multiply" | "divide";
+type Presentation = { originCountryName: string; destinationCountryName: string; originFlag: string; destinationFlag: string; displayRate: string; exampleAmount: string; exampleResult: string; formula: string; customerMessage: string };
+type Rate = { routeId: string; quoteId: string; originCountry: string; originCurrency: string; destinationCountry: string; destinationCurrency: string; active: boolean; version: number; sourceUnits: string; destinationUnits: string; commercialRate: string; routeOperation: Operation | null; roundingPrecision: number | null; calculationOperation: Operation | null; precision: number; previewAmount: string | null; previewResult: string | null; validFrom: string; validUntil: string | null; status: "draft" | "published" | "disabled"; createdByUserId: string; createdByName: string; publishedByUserId: string | null; publishedByName: string | null; createdAt: string; publishedAt: string | null };
+type CurrentRate = Rate & { presentation: Presentation };
+type Route = { id: string; originCountry: string; originCurrency: string; destinationCountry: string; destinationCurrency: string; calculationOperation: Operation | null; roundingPrecision: number | null; active: boolean };
 type Supervisor = { id: string; userId: string; name: string; enabled: boolean };
 
-function operationLabel(operation: "multiply" | "divide" | null): string {
-  if (operation === "multiply") return "MULTIPLY (×)";
-  if (operation === "divide") return "DIVIDE (÷)";
-  return "Sin configurar";
-}
+function countryName(code: string) { return new Intl.DisplayNames(["es"], { type: "region" }).of(code) ?? code; }
+function countryFlag(code: string) { return String.fromCodePoint(...[...code.toUpperCase()].map((letter) => 127397 + letter.charCodeAt(0))); }
+function routeLabel(route: Pick<Route, "originCountry" | "originCurrency" | "destinationCountry" | "destinationCurrency">) { return `${countryFlag(route.originCountry)} ${countryName(route.originCountry)} · ${route.originCurrency} → ${countryFlag(route.destinationCountry)} ${countryName(route.destinationCountry)} · ${route.destinationCurrency}`; }
+function humanDate(value: string) { return new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+function status(rate: Rate) { if (rate.status === "draft") return "Borrador"; if (rate.status === "disabled") return "Desactivada"; const now = Date.now(); if (new Date(rate.validFrom).getTime() > now) return "Programada"; if (rate.validUntil && new Date(rate.validUntil).getTime() <= now) return "Vencida"; if (rate.validUntil && new Date(rate.validUntil).getTime() - now <= 86_400_000) return "Próxima a vencer"; return "Vigente"; }
+function operationLabel(value: Operation | null) { return value === "multiply" ? "Multiplicar (×)" : value === "divide" ? "Dividir (÷)" : "Sin configurar"; }
+function toLocalInput(date = new Date()) { const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 16); }
+function MessagePreview({ text }: { text: string }) { return <div className="whitespace-pre-wrap text-sm leading-6">{text.split(/(\*[^*]+\*)/g).map((part, index) => part.startsWith("*") && part.endsWith("*") ? <strong key={index}>{part.slice(1, -1)}</strong> : <span key={index}>{part}</span>)}</div>; }
 
-function displayStatus(rate: Rate): string {
-  if (rate.status === "draft") return "Borrador";
-  if (rate.status === "disabled") return "Desactivada";
-  const now = Date.now();
-  if (new Date(rate.validFrom).getTime() > now) return "Programada";
-  if (rate.validUntil && new Date(rate.validUntil).getTime() <= now) return "Vencida";
-  return "Vigente";
-}
-
-export function ExchangeRatesClient({ initialEnabled, canManage, isOwner, initialRates, initialRoutes, supervisors }: {
-  initialEnabled: boolean; canManage: boolean; isOwner: boolean;
-  initialRates: Rate[]; initialRoutes: Route[]; supervisors: Supervisor[];
-}) {
-  const router = useRouter();
+export function ExchangeRatesClient({ initialEnabled, canManage, isOwner, initialRates, initialCurrentRates, initialRoutes, supervisors }: { initialEnabled: boolean; canManage: boolean; isOwner: boolean; initialRates: Rate[]; initialCurrentRates: CurrentRate[]; initialRoutes: Route[]; supervisors: Supervisor[] }) {
   const [enabled, setEnabled] = useState(initialEnabled);
   const [rates, setRates] = useState(initialRates);
+  const [currentRates, setCurrentRates] = useState(initialCurrentRates);
   const [routes, setRoutes] = useState(initialRoutes);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [selectedRouteId, setSelectedRouteId] = useState(initialCurrentRates[0]?.routeId ?? initialRoutes[0]?.id ?? "");
+  const [search, setSearch] = useState(""); const [amount, setAmount] = useState("100.000");
+  const [calculation, setCalculation] = useState<Presentation | null>(initialCurrentRates[0]?.presentation ?? null);
+  const [draftRate, setDraftRate] = useState(""); const [validFrom, setValidFrom] = useState(() => toLocalInput()); const [validUntil, setValidUntil] = useState("");
+  const [draftPreview, setDraftPreview] = useState<Presentation | null>(null); const [draftId, setDraftId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const selectedCurrent = currentRates.find((rate) => rate.routeId === selectedRouteId) ?? null;
+  const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
+  const filteredRoutes = useMemo(() => { const needle = search.trim().toLocaleLowerCase("es"); return needle ? routes.filter((route) => routeLabel(route).toLocaleLowerCase("es").includes(needle)) : routes; }, [routes, search]);
 
-  async function request(url: string, init: RequestInit) {
-    setBusy(true); setError(null);
-    try {
-      const response = await fetch(url, init);
-      const data = await response.json().catch(() => ({})) as { error?: { message?: string } };
-      if (!response.ok) throw new Error(data.error?.message ?? "No se pudo completar la operación");
-      router.refresh();
-      const refreshed = await fetch("/api/exchange-rates");
-      if (refreshed.ok) {
-        const payload = (await refreshed.json()) as { rates: Rate[]; routes: Route[] };
-        setRates(payload.rates);
-        setRoutes(payload.routes);
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Error inesperado");
-    } finally { setBusy(false); }
-  }
+  async function api<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, init); const data = await response.json().catch(() => ({})) as T & { error?: { message?: string } }; if (!response.ok) throw new Error(data.error?.message ?? "No se pudo completar la operación"); return data; }
+  async function refresh() { const payload = await api<{ rates: Rate[]; currentRates: CurrentRate[]; routes: Route[] }>("/api/exchange-rates"); setRates(payload.rates); setCurrentRates(payload.currentRates); setRoutes(payload.routes); }
+  async function run(action: () => Promise<void>) { setBusy(true); setError(null); try { await action(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Error inesperado"); } finally { setBusy(false); } }
+  function chooseRoute(routeId: string) { setSelectedRouteId(routeId); setCalculation(currentRates.find((rate) => rate.routeId === routeId)?.presentation ?? null); setDraftPreview(null); setDraftId(null); }
+  async function calculate() { await run(async () => { const data = await api<{ calculation: { presentation: Presentation } }>("/api/exchange-rates/calculate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ routeId: selectedRouteId, amount }) }); setCalculation(data.calculation.presentation); }); }
+  async function previewDraft() { await run(async () => { const data = await api<{ preview: { presentation: Presentation } }>("/api/exchange-rates/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ routeId: selectedRouteId, commercialRate: draftRate, amount: "100000" }) }); setDraftPreview(data.preview.presentation); setDraftId(null); }); }
+  async function saveDraft() { await run(async () => { if (!draftPreview) throw new Error("Revisa la vista previa antes de guardar el borrador"); const data = await api<{ quote: { id: string } }>("/api/exchange-rates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ routeId: selectedRouteId, commercialRate: draftRate, validFrom: new Date(validFrom).toISOString(), validUntil: validUntil ? new Date(validUntil).toISOString() : null }) }); setDraftId(data.quote.id); await refresh(); }); }
+  async function publishDraft() { if (!draftId) return; await run(async () => { await api(`/api/exchange-rates/${draftId}/publish`, { method: "POST" }); setDraftId(null); setDraftPreview(null); setDraftRate(""); await refresh(); }); }
+  async function configureRoute(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); await run(async () => { await api("/api/exchange-rates/routes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ originCountry: form.get("originCountry"), originCurrency: form.get("originCurrency"), destinationCountry: form.get("destinationCountry"), destinationCurrency: form.get("destinationCurrency"), operation: form.get("calculationOperation"), precision: Number(form.get("roundingPrecision")) }) }); await refresh(); }); }
+  async function updateSetting(body: { action: "module"; enabled: boolean } | { action: "capability"; memberId: string; enabled: boolean }) { await run(async () => { await api("/api/settings/exchange-rates", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (body.action === "module") setEnabled(body.enabled); else await refresh(); }); }
 
-  async function toggleModule(next: boolean) {
-    await request("/api/settings/exchange-rates", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "module", enabled: next }) });
-    setEnabled(next);
-  }
-
-  async function createDraft(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const validUntil = String(form.get("validUntil") ?? "");
-    await request("/api/exchange-rates", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        routeId: form.get("routeId"), commercialRate: form.get("commercialRate"),
-        validFrom: new Date(String(form.get("validFrom"))).toISOString(),
-        validUntil: validUntil ? new Date(validUntil).toISOString() : null,
-      }),
-    });
-  }
-
-  async function configureRoute(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await request("/api/exchange-rates/routes", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        originCountry: form.get("originCountry"), originCurrency: form.get("originCurrency"),
-        destinationCountry: form.get("destinationCountry"), destinationCurrency: form.get("destinationCurrency"),
-        operation: form.get("calculationOperation"),
-        precision: Number(form.get("roundingPrecision")),
-      }),
-    });
-  }
-
-  return (
-    <div className="h-full overflow-y-auto bg-background p-4 sm:p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <header>
-          <p className="kicker">Negocio</p>
-          <h1 className="text-2xl font-bold tracking-tight">Tasas de cambio</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Fuente autorizada para el equipo y la IA. Las rutas inversas se administran por separado.</p>
-        </header>
-
-        {error && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-
-        {isOwner && (
-          <section className="rounded-lg border bg-card p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div><h2 className="font-semibold">Módulo por organización</h2><p className="text-sm text-muted-foreground">Actívalo solo para negocios que operan remesas.</p></div>
-              <button disabled={busy} onClick={() => void toggleModule(!enabled)} className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{enabled ? "Desactivar módulo" : "Activar módulo"}</button>
-            </div>
-            {enabled && supervisors.length > 0 && <div className="mt-4 border-t pt-4"><p className="mb-2 text-sm font-semibold">Supervisoras autorizadas</p>{supervisors.map((member) => <label key={member.id} className="flex items-center gap-2 py-1 text-sm"><input type="checkbox" defaultChecked={member.enabled} onChange={(event) => void request("/api/settings/exchange-rates", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "capability", memberId: member.id, enabled: event.target.checked }) })} />{member.name}</label>)}</div>}
-          </section>
-        )}
-
-        {enabled && isOwner && (
-          <section className="rounded-lg border bg-card p-4 sm:p-5">
-            <h2 className="font-semibold">Configuración de rutas</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Solo la persona propietaria define una vez la fórmula y el redondeo comercial. Las cotizaciones diarias no pueden cambiarlos.</p>
-            <form onSubmit={configureRoute} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[["originCountry", "País origen (CO)"], ["originCurrency", "Moneda origen (COP)"], ["destinationCountry", "País destino (VE)"], ["destinationCurrency", "Moneda destino (VES)"]].map(([name, label]) => <label key={name} className="text-sm font-medium">{label}<input name={name} required maxLength={3} className="mt-1 w-full rounded-md border bg-background px-3 py-2 uppercase" /></label>)}
-              <label className="text-sm font-medium">Operación<select name="calculationOperation" required className="mt-1 w-full rounded-md border bg-background px-3 py-2"><option value="multiply">MULTIPLY (×)</option><option value="divide">DIVIDE (÷)</option></select></label>
-              <label className="text-sm font-medium">Decimales finales<input name="roundingPrecision" type="number" min="0" max="12" defaultValue="2" required className="mt-1 w-full rounded-md border bg-background px-3 py-2" /></label>
-              <div className="flex items-end sm:col-span-2"><button disabled={busy} className="w-full rounded-md border border-primary px-4 py-2 text-sm font-semibold text-primary disabled:opacity-50">Configurar ruta</button></div>
-            </form>
-            {routes.length > 0 && <div className="mt-4 grid gap-2 border-t pt-4 sm:grid-cols-2">{routes.map((route) => <div key={route.id} className="rounded-md bg-muted p-3 text-sm"><span className="font-semibold">{route.originCountry} · {route.originCurrency} → {route.destinationCountry} · {route.destinationCurrency}</span><span className="mt-1 block text-muted-foreground">{operationLabel(route.calculationOperation)}{route.roundingPrecision === null ? "" : ` · ${route.roundingPrecision} decimales`}</span></div>)}</div>}
-          </section>
-        )}
-
-        {enabled && canManage && (
-          <section className="rounded-lg border bg-card p-4 sm:p-5">
-            <h2 className="font-semibold">Actualización diaria de tasas</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Selecciona una ruta configurada y actualiza únicamente su tasa y vigencia. Guardar no publica.</p>
-            <form onSubmit={createDraft} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label className="text-sm font-medium sm:col-span-2">Ruta<select name="routeId" required className="mt-1 w-full rounded-md border bg-background px-3 py-2"><option value="">Selecciona una ruta</option>{routes.filter((route) => route.calculationOperation && route.roundingPrecision !== null && route.active).map((route) => <option key={route.id} value={route.id}>{route.originCountry} · {route.originCurrency} → {route.destinationCountry} · {route.destinationCurrency} · {operationLabel(route.calculationOperation)}</option>)}</select></label>
-              <label className="text-sm font-medium">Tasa comercial<input name="commercialRate" inputMode="decimal" required placeholder="3.68" className="mt-1 w-full rounded-md border bg-background px-3 py-2" /></label>
-              <label className="text-sm font-medium sm:col-span-1">Válida desde<input name="validFrom" type="datetime-local" required className="mt-1 w-full rounded-md border bg-background px-3 py-2" /></label>
-              <label className="text-sm font-medium sm:col-span-1">Válida hasta (opcional)<input name="validUntil" type="datetime-local" className="mt-1 w-full rounded-md border bg-background px-3 py-2" /></label>
-              <div className="flex items-end sm:col-span-2 lg:col-span-3"><button disabled={busy || !routes.some((route) => route.calculationOperation && route.roundingPrecision !== null && route.active)} className="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">Guardar borrador</button></div>
-            </form>
-            {!routes.some((route) => route.calculationOperation && route.roundingPrecision !== null && route.active) && <p className="mt-3 text-sm text-warning-text">La persona propietaria debe configurar al menos una ruta antes de actualizar tasas.</p>}
-          </section>
-        )}
-
-        {enabled && canManage && rates.length > 0 && (
-          <section className="rounded-lg border bg-card p-4">
-            <h2 className="font-semibold">Responsables e historial</h2>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-muted-foreground"><tr><th className="pb-2 pr-4">Versión</th><th className="pb-2 pr-4">Acción</th><th className="pb-2 pr-4">Responsable</th><th className="pb-2">Fecha</th></tr></thead>
-                <tbody>{rates.map((rate) => <tr key={`audit-${rate.quoteId}`} className="border-t"><td className="py-2 pr-4">{rate.originCurrency}→{rate.destinationCurrency} v{rate.version}</td><td className="py-2 pr-4">{displayStatus(rate)}</td><td className="py-2 pr-4">{rate.publishedByName ?? rate.createdByName}</td><td className="py-2">{new Date(rate.publishedAt ?? rate.createdAt).toLocaleString()}</td></tr>)}</tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {enabled && <section><div className="mb-3 flex items-center gap-2"><History className="h-5 w-5" /><h2 className="font-semibold">{canManage ? "Cotizaciones e historial" : "Tasas vigentes"}</h2></div>{rates.length === 0 ? <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No hay tasas para mostrar.</div> : <div className="grid gap-4 md:grid-cols-2">{rates.map((rate) => <article key={rate.quoteId} className="rounded-lg border bg-card p-4"><div className="flex items-start justify-between gap-2"><div className="flex items-center gap-2 font-semibold"><span>{rate.originCountry} · {rate.originCurrency}</span><ArrowRight className="h-4 w-4"/><span>{rate.destinationCountry} · {rate.destinationCurrency}</span></div><span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold">{displayStatus(rate)}</span></div><p className="mt-4 text-xl font-bold">{operationLabel(rate.calculationOperation)}</p><p className="mt-1 text-sm text-muted-foreground">Tasa {rate.commercialRate} · precisión {rate.precision} · versión {rate.version}</p>{rate.previewAmount && rate.previewResult && rate.calculationOperation ? <div className="mt-3 rounded-md border bg-muted p-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vista previa antes de publicar</p><p className="mt-1 font-semibold">{rate.previewAmount} {rate.originCurrency} {rate.calculationOperation === "multiply" ? "×" : "÷"} {rate.commercialRate} = {rate.previewResult} {rate.destinationCurrency}</p></div> : <div className="mt-3 rounded-md border border-warning-border bg-warning-surface p-3 text-sm text-warning-text">Cotización histórica sin fórmula comercial. No se reinterpreta ni puede publicarse.</div>}<p className="mt-3 flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5"/>Desde {new Date(rate.validFrom).toLocaleString()} {rate.validUntil ? `hasta ${new Date(rate.validUntil).toLocaleString()}` : "sin vencimiento"}</p>{canManage && rate.status === "draft" && rate.calculationOperation && <div className="mt-4 rounded-md border border-warning-border bg-warning-surface p-3"><p className="flex gap-2 text-sm"><AlertTriangle className="h-4 w-4 shrink-0 text-warning-text"/>Confirma la vista previa. Al publicar, equipo e IA usarán esta fórmula y tasa durante su vigencia.</p><button disabled={busy} onClick={() => void request(`/api/exchange-rates/${rate.quoteId}/publish`, { method: "POST" })} className="mt-3 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground">Publicar</button></div>}{canManage && rate.status === "published" && <button disabled={busy} onClick={() => void request(`/api/exchange-rates/${rate.quoteId}/disable`, { method: "POST" })} className="mt-4 rounded-md border px-3 py-2 text-sm font-semibold hover:bg-muted">Desactivar</button>}</article>)}</div>}</section>}
-      </div>
-    </div>
-  );
+  return <div className="h-full overflow-y-auto bg-background p-4 sm:p-6"><div className="mx-auto max-w-7xl space-y-5">
+    <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="kicker">Negocio</p><h1 className="text-3xl font-bold tracking-tight">Tasas de cambio</h1><p className="mt-1 text-sm text-muted-foreground">Consulta y actualiza las tasas publicadas para tus rutas de remesas.</p></div>{enabled && <div className="flex items-center gap-2 rounded-xl border border-success-border bg-success-surface px-4 py-3 text-sm text-success-text"><CheckCircle2 className="h-5 w-5"/><span><strong className="block">Sistema activo</strong>La IA usa únicamente tasas vigentes</span></div>}</header>
+    {error && <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+    {!enabled && !isOwner && <div className="rounded-xl border border-dashed p-10 text-center text-muted-foreground">El módulo de tasas no está activo para esta organización.</div>}
+    {enabled && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]"><main className="min-w-0 space-y-5">
+      <section className="rounded-xl border bg-card p-4 shadow-sm sm:p-5"><div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)]"><label className="text-sm font-medium"><span className="mb-1.5 flex items-center gap-2"><Search className="h-4 w-4"/>Buscar ruta</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="País o moneda" className="w-full rounded-lg border bg-background px-3 py-2.5"/></label><label className="text-sm font-medium"><span className="mb-1.5 block">Ruta seleccionada</span><select aria-label="Ruta seleccionada" value={selectedRouteId} onChange={(event) => chooseRoute(event.target.value)} className="w-full rounded-lg border bg-background px-3 py-2.5"><option value="">Selecciona una ruta</option>{filteredRoutes.map((route) => <option key={route.id} value={route.id}>{routeLabel(route)}</option>)}</select></label></div><details className="mt-4 border-t pt-3"><summary className="cursor-pointer text-sm font-semibold text-primary">Ver todas las tasas vigentes ({currentRates.length})</summary><div className="mt-3 grid gap-2 sm:grid-cols-2">{currentRates.map((rate) => <button key={rate.quoteId} type="button" onClick={() => chooseRoute(rate.routeId)} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3 text-left text-sm hover:bg-muted"><span className="min-w-0 truncate">{rate.presentation.originFlag} {rate.originCurrency} → {rate.presentation.destinationFlag} {rate.destinationCurrency}</span><strong className="text-primary">{rate.presentation.displayRate}</strong></button>)}</div></details></section>
+      {selectedCurrent ? <article className="rounded-xl border bg-card p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-3 text-2xl" aria-hidden="true"><span>{selectedCurrent.presentation.originFlag}</span><ArrowRight className="h-5 w-5"/><span>{selectedCurrent.presentation.destinationFlag}</span></div><h2 className="mt-2 text-xl font-bold">{selectedCurrent.presentation.originCountryName} → {selectedCurrent.presentation.destinationCountryName}</h2><p className="text-sm text-muted-foreground">Envías {selectedCurrent.originCurrency} y reciben {selectedCurrent.destinationCurrency}.</p></div><span className="rounded-full bg-success-surface px-3 py-1 text-xs font-semibold text-success-text">● {status(selectedCurrent)}</span></div><p className="mt-5 text-sm font-semibold">Tasa de hoy</p><p className="mt-1 text-4xl font-bold text-primary">{selectedCurrent.presentation.displayRate}</p><div className="mt-4 rounded-xl border border-success-border bg-success-surface p-4"><p className="text-sm text-success-text">Ejemplo de cambio</p><p className="mt-1 text-lg font-bold text-success-text">{selectedCurrent.presentation.formula}</p></div><p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-4 w-4"/>Actualizada {humanDate(selectedCurrent.publishedAt ?? selectedCurrent.validFrom)}</p></article> : <div className="rounded-xl border border-dashed p-8 text-center"><p className="font-semibold">No hay una tasa vigente para esta ruta</p><p className="mt-1 text-sm text-muted-foreground">La calculadora y la IA no harán conversiones hasta que se publique una.</p></div>}
+      <section className="rounded-xl border bg-card p-5 shadow-sm"><div className="flex items-center gap-2"><Calculator className="h-5 w-5 text-primary"/><div><h2 className="font-semibold">Calculadora rápida</h2><p className="text-sm text-muted-foreground">El servidor aplica la fórmula autorizada y el redondeo comercial.</p></div></div><div className="mt-4 grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]"><label className="text-sm font-medium">Tú envías<div className="mt-1 flex rounded-lg border bg-background"><input aria-label="Importe de origen" value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-lg font-semibold outline-none"/><span className="border-l px-3 py-2.5 font-semibold">{selectedCurrent?.originCurrency ?? "—"}</span></div></label><button disabled={busy || !selectedCurrent} onClick={() => void calculate()} className="rounded-lg bg-primary p-3 text-primary-foreground disabled:opacity-50" aria-label="Calcular conversión"><ArrowRight className="h-5 w-5"/></button><label className="text-sm font-medium">Tu familiar recibe<div className="mt-1 flex rounded-lg border bg-muted"><output className="min-w-0 flex-1 px-3 py-2.5 text-lg font-semibold">{calculation?.exampleResult ?? "—"}</output><span className="border-l px-3 py-2.5 font-semibold">{selectedCurrent?.destinationCurrency ?? "—"}</span></div></label></div>{calculation && <p className="mt-3 rounded-lg bg-success-surface px-3 py-2 text-sm font-medium text-success-text">{calculation.formula}</p>}<p className="mt-2 text-xs text-muted-foreground">Estimación informativa. La transferencia se confirma por separado.</p></section>
+      {canManage && <section id="actualizar-tasa" className="rounded-xl border bg-card p-5 shadow-sm"><h2 className="font-semibold">Actualizar tasa y vigencia</h2><p className="mt-1 text-sm text-muted-foreground">La operación de la ruta permanece fija. Revisa el cálculo antes de publicar.</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Nueva tasa<input value={draftRate} onChange={(event) => { setDraftRate(event.target.value); setDraftPreview(null); setDraftId(null); }} inputMode="decimal" placeholder="3,53" className="mt-1 w-full rounded-lg border bg-background px-3 py-2.5"/></label><label className="text-sm font-medium">Válida desde<input value={validFrom} onChange={(event) => setValidFrom(event.target.value)} type="datetime-local" className="mt-1 w-full rounded-lg border bg-background px-3 py-2.5"/></label><label className="text-sm font-medium">Válida hasta (opcional)<input value={validUntil} onChange={(event) => setValidUntil(event.target.value)} type="datetime-local" className="mt-1 w-full rounded-lg border bg-background px-3 py-2.5"/></label><div className="flex items-end"><button disabled={busy || !selectedRoute?.calculationOperation || !draftRate} onClick={() => void previewDraft()} className="w-full rounded-lg border border-primary px-4 py-2.5 text-sm font-semibold text-primary disabled:opacity-50">Ver cálculo antes de publicar</button></div></div>{draftPreview && <div className="mt-4 rounded-xl border border-success-border bg-success-surface p-4"><p className="text-xs font-semibold uppercase tracking-wide text-success-text">Vista previa</p><p className="mt-1 text-lg font-bold text-success-text">{draftPreview.formula}</p><div className="mt-3 flex flex-wrap gap-2"><button disabled={busy || Boolean(draftId)} onClick={() => void saveDraft()} className="rounded-lg border border-primary bg-background px-4 py-2 text-sm font-semibold text-primary disabled:opacity-50">{draftId ? "Borrador guardado" : "Guardar borrador"}</button><button disabled={busy || !draftId} onClick={() => void publishDraft()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">Publicar tasa</button></div></div>}</section>}
+      {canManage && <details className="rounded-xl border bg-card p-5"><summary className="flex cursor-pointer list-none items-center gap-2 font-semibold"><History className="h-5 w-5"/>Historial y auditoría</summary><div className="mt-4 space-y-3">{rates.length === 0 ? <p className="text-sm text-muted-foreground">No hay cotizaciones.</p> : rates.map((rate) => <article key={rate.quoteId} className="rounded-lg border p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><strong>{routeLabel(rate)} · v{rate.version}</strong><span>{status(rate)}</span></div><p className="mt-1 text-muted-foreground">{rate.calculationOperation ? `${operationLabel(rate.calculationOperation)} · tasa ${rate.commercialRate}` : "Cotización histórica sin fórmula; no se reinterpreta."}</p><p className="mt-1 text-xs text-muted-foreground">{rate.publishedByName ?? rate.createdByName} · {humanDate(rate.publishedAt ?? rate.createdAt)}</p>{rate.status === "draft" && rate.calculationOperation && <button disabled={busy} onClick={() => void run(async () => { await api(`/api/exchange-rates/${rate.quoteId}/publish`, { method: "POST" }); await refresh(); })} className="mt-2 rounded-md bg-primary px-3 py-1.5 font-semibold text-primary-foreground">Publicar</button>}{rate.status === "published" && <button disabled={busy} onClick={() => void run(async () => { await api(`/api/exchange-rates/${rate.quoteId}/disable`, { method: "POST" }); await refresh(); })} className="mt-2 rounded-md border px-3 py-1.5 font-semibold">Desactivar</button>}</article>)}</div></details>}
+      {isOwner && <details className="rounded-xl border bg-card p-5"><summary className="flex cursor-pointer list-none items-center gap-2 font-semibold"><Settings2 className="h-5 w-5"/>Configuración avanzada</summary><div className="mt-4 space-y-5"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted p-3"><div><strong>Módulo por organización</strong><p className="text-sm text-muted-foreground">Debe activarse explícitamente.</p></div><button disabled={busy} onClick={() => void updateSetting({ action: "module", enabled: !enabled })} className="rounded-lg border bg-background px-3 py-2 text-sm font-semibold">{enabled ? "Desactivar" : "Activar"}</button></div>{supervisors.length > 0 && <div><p className="text-sm font-semibold">Supervisoras autorizadas</p>{supervisors.map((member) => <label key={member.id} className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" defaultChecked={member.enabled} onChange={(event) => void updateSetting({ action: "capability", memberId: member.id, enabled: event.target.checked })}/>{member.name}</label>)}</div>}<form onSubmit={configureRoute} className="grid gap-3 sm:grid-cols-2"><div className="sm:col-span-2"><strong>Crear ruta comercial</strong><p className="text-sm text-muted-foreground">La operación se define una sola vez y queda inmutable.</p></div>{[["originCountry", "País origen (CO)"], ["originCurrency", "Moneda origen (COP)"], ["destinationCountry", "País destino (VE)"], ["destinationCurrency", "Moneda destino (VES)"]].map(([name, label]) => <label key={name} className="text-sm font-medium">{label}<input name={name} required maxLength={3} className="mt-1 w-full rounded-lg border bg-background px-3 py-2 uppercase"/></label>)}<label className="text-sm font-medium">Operación<select name="calculationOperation" className="mt-1 w-full rounded-lg border bg-background px-3 py-2"><option value="multiply">Multiplicar (×)</option><option value="divide">Dividir (÷)</option></select></label><label className="text-sm font-medium">Decimales finales<input name="roundingPrecision" type="number" min="0" max="12" defaultValue="2" className="mt-1 w-full rounded-lg border bg-background px-3 py-2"/></label><button disabled={busy} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground sm:col-span-2">Configurar ruta</button></form></div></details>}
+    </main><aside className="min-w-0 xl:sticky xl:top-5 xl:self-start"><section className="rounded-xl border bg-card p-4 shadow-sm"><div className="flex items-center gap-3"><div className="rounded-xl bg-success-surface p-2 text-success-text"><Send className="h-5 w-5"/></div><div><h2 className="font-semibold">Vista previa · WhatsApp</h2><p className="text-xs text-muted-foreground">La misma respuesta que genera el servidor.</p></div></div><div className="mt-4 rounded-xl bg-muted p-3"><div className="mb-3 flex items-center gap-2 rounded-lg bg-card p-3"><div className="rounded-full bg-primary/10 p-2 text-primary"><ShieldCheck className="h-5 w-5"/></div><div><strong className="text-sm">Atención de remesas</strong><p className="text-xs text-muted-foreground">Cuenta de empresa</p></div></div><div className="rounded-xl bg-card p-4 shadow-sm">{selectedCurrent ? <MessagePreview text={selectedCurrent.presentation.customerMessage}/> : <p className="text-sm text-muted-foreground">Selecciona una ruta con tasa vigente para ver la respuesta.</p>}</div></div><div className="mt-3 flex gap-2 rounded-lg border border-warning-border bg-warning-surface p-3 text-xs text-warning-text"><AlertTriangle className="h-4 w-4 shrink-0"/>La respuesta informa una estimación; nunca confirma una transferencia.</div></section></aside></div>}
+  </div></div>;
 }

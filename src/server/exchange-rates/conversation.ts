@@ -1,7 +1,7 @@
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
-import { calculateConversion, operationSymbol } from "@/server/exchange-rates/decimal";
 import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
+import { buildExchangeRatePresentation, buildSpecificAmountMessage, countryName, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
 import { listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
 
 const RATE_REQUEST = /\b(tasa|tipo\s+de\s+cambio|cotizaci[oó]n|convertir|conversi[oó]n)\b/i;
@@ -19,13 +19,14 @@ function tokenPosition(text: string, terms: readonly string[]): number {
   return best;
 }
 
-function countryName(code: string): string {
-  return new Intl.DisplayNames(["es"], { type: "region" }).of(code) ?? code;
-}
-
 function extractAmount(text: string, currency: string): string | null {
-  const match = normalized(text).match(new RegExp(`(\\d+(?:[.,]\\d{1,12})?)\\s*${currency}\\b`));
-  return match?.[1]?.replace(",", ".") ?? null;
+  const match = normalized(text).match(new RegExp(`(\\d[\\d.,\\s\\u00a0]*)\\s*${currency}\\b`));
+  if (!match?.[1]) return null;
+  try {
+    return normalizeLocalizedAmount(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 export type RateConversationResult = { reply: string; kind: "rate" | "clarification" | "pending" } | null;
@@ -48,18 +49,14 @@ export function resolveRateText(textValue: string, rates: readonly CurrentRate[]
     const currencyCodes = text.match(/\b[A-Z]{3}\b/g) ?? [];
     return currencyCodes.length < 2
       ? { kind: "clarification", reply: "¿Desde qué país y moneda envías, y en qué país y moneda deseas recibir?" }
-      : { kind: "pending", reply: "No tengo una tasa vigente para esa ruta. Dejé la solicitud pendiente para confirmación humana." };
+      : { kind: "pending", reply: "En este momento no tengo una tasa vigente para esa ruta. Una asesora confirmará la información contigo." };
   }
   if (!rate.calculationOperation) {
-    return { kind: "pending", reply: "La ruta existe, pero su fórmula comercial aún requiere confirmación del propietario." };
+    return { kind: "pending", reply: "Todavía no puedo cotizar esa ruta. Una asesora confirmará la información contigo." };
   }
-  const reference = (rate.publishedAt ?? rate.validFrom).toISOString();
-  const symbol = operationSymbol(rate.calculationOperation);
-  const base = `Operación autorizada: ${rate.originCurrency} ${symbol} ${rate.commercialRate} → ${rate.destinationCurrency}. Referencia publicada: ${reference}.`;
   const amount = extractAmount(textValue, rate.originCurrency);
-  if (!amount) return { kind: "rate", reply: base };
-  const converted = calculateConversion(amount, rate.commercialRate, rate.calculationOperation, rate.precision);
-  return { kind: "rate", reply: `${base} ${amount} ${rate.originCurrency} ${symbol} ${rate.commercialRate} = ${converted} ${rate.destinationCurrency}. Es una estimación de tasa; no confirma una transferencia.` };
+  if (!amount) return { kind: "rate", reply: buildExchangeRatePresentation({ ...rate, calculationOperation: rate.calculationOperation }).customerMessage };
+  return { kind: "rate", reply: buildSpecificAmountMessage({ ...rate, calculationOperation: rate.calculationOperation }, amount) };
 }
 
 /** Resuelve una consulta sin enviar tasas ni texto financiero al LLM. */

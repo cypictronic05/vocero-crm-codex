@@ -4,8 +4,9 @@ import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import type { SessionContext } from "@/lib/auth/session";
 import { calculateConversion } from "@/server/exchange-rates/decimal";
+import { buildExchangeRatePresentation } from "@/server/exchange-rates/presentation";
 import { operationMatchesCommercialRule } from "@/server/exchange-rates/rules";
-import type { ConfigureExchangeRateRouteInput, CreateExchangeRateInput } from "@/server/exchange-rates/validation";
+import type { CalculateExchangeRateInput, ConfigureExchangeRateRouteInput, CreateExchangeRateInput, PreviewExchangeRateInput } from "@/server/exchange-rates/validation";
 
 const PREVIEW_AMOUNT = "100000";
 
@@ -116,6 +117,55 @@ export async function listExchangeRates(organizationId: string, includeHistory: 
       publishedByName: row.publishedByUserId ? names.get(row.publishedByUserId) ?? "Usuario" : null,
     };
   });
+}
+
+export async function listPresentedCurrentRates(organizationId: string, at = new Date()) {
+  const rates = await listExchangeRates(organizationId, false, at);
+  return rates.flatMap((rate) => rate.calculationOperation ? [{
+    ...rate,
+    presentation: buildExchangeRatePresentation({ ...rate, calculationOperation: rate.calculationOperation }),
+  }] : []);
+}
+
+export async function calculateCurrentExchangeRate(organizationId: string, input: CalculateExchangeRateInput, at = new Date()) {
+  const rates = await listExchangeRates(organizationId, false, at);
+  const rate = rates.find((candidate) => candidate.routeId === input.routeId);
+  if (!rate?.calculationOperation) {
+    throw new ExchangeRateError("not_found", "No hay una tasa vigente y autorizada para esta ruta");
+  }
+  return {
+    quoteId: rate.quoteId,
+    routeId: rate.routeId,
+    amount: input.amount,
+    presentation: buildExchangeRatePresentation({ ...rate, calculationOperation: rate.calculationOperation }, input.amount),
+  };
+}
+
+export async function previewExchangeRateDraft(session: SessionContext, input: PreviewExchangeRateInput) {
+  await requireRateManager(session);
+  const [route] = await getDb().select().from(schema.exchangeRateRoute).where(scoped(
+    schema.exchangeRateRoute.organizationId,
+    session.organizationId,
+    eq(schema.exchangeRateRoute.id, input.routeId),
+    eq(schema.exchangeRateRoute.active, true)
+  )).limit(1);
+  if (!route) throw new ExchangeRateError("not_found", "Ruta no encontrada");
+  if (!route.calculationOperation || route.roundingPrecision === null) {
+    throw new ExchangeRateError("route_not_configured", "La ruta aún no tiene fórmula comercial");
+  }
+  return {
+    routeId: route.id,
+    amount: input.amount,
+    presentation: buildExchangeRatePresentation({
+      originCountry: route.originCountry,
+      originCurrency: route.originCurrency,
+      destinationCountry: route.destinationCountry,
+      destinationCurrency: route.destinationCurrency,
+      commercialRate: input.commercialRate,
+      calculationOperation: route.calculationOperation,
+      precision: route.roundingPrecision,
+    }, input.amount),
+  };
 }
 
 export async function configureExchangeRateRoute(session: SessionContext, input: ConfigureExchangeRateRouteInput) {

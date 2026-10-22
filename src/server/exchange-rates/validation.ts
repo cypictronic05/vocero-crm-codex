@@ -1,8 +1,20 @@
 import { z } from "zod";
 import { isIsoCountryCode, isIsoCurrencyCode } from "@/lib/iso";
 import { operationMatchesCommercialRule } from "@/server/exchange-rates/rules";
+import { normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
 
-const positiveDecimal = z.string().trim().regex(/^\+?(?:0*[1-9]\d*)(?:\.\d{1,12})?$|^\+?0*\.\d*[1-9]\d*$/, "Debe ser un decimal positivo con hasta 12 decimales");
+const canonicalPositiveDecimal = z.string().trim().regex(/^\+?(?:0*[1-9]\d*)(?:\.\d{1,12})?$|^\+?0*\.\d*[1-9]\d*$/, "Debe ser un decimal positivo con hasta 12 decimales");
+const positiveRateDecimal = z.string().trim()
+  .transform((value) => value.replace(",", "."))
+  .pipe(canonicalPositiveDecimal);
+const localizedPositiveAmount = z.string().trim().min(1).max(64).transform((value, ctx) => {
+  try {
+    return normalizeLocalizedAmount(value);
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Escribe un importe positivo válido" });
+    return z.NEVER;
+  }
+});
 const country = z.string().trim().toUpperCase()
   .regex(/^[A-Z]{2}$/, "Usa país ISO de dos letras")
   .refine(isIsoCountryCode, "El país no pertenece a ISO 3166-1");
@@ -30,13 +42,24 @@ export const configureExchangeRateRouteSchema = z.object({
 
 export const createExchangeRateSchema = z.object({
   routeId: z.string().min(1),
-  commercialRate: positiveDecimal,
+  commercialRate: positiveRateDecimal,
   validFrom: z.string().datetime({ offset: true }),
   validUntil: z.string().datetime({ offset: true }).nullable(),
 }).superRefine((value, ctx) => {
   if (value.validUntil && new Date(value.validUntil) <= new Date(value.validFrom)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["validUntil"], message: "Debe ser posterior a validFrom" });
   }
+});
+
+export const calculateExchangeRateSchema = z.object({
+  routeId: z.string().min(1),
+  amount: localizedPositiveAmount,
+});
+
+export const previewExchangeRateSchema = z.object({
+  routeId: z.string().min(1),
+  commercialRate: positiveRateDecimal,
+  amount: localizedPositiveAmount,
 });
 
 export const exchangeRateSettingsSchema = z.discriminatedUnion("action", [
@@ -46,3 +69,5 @@ export const exchangeRateSettingsSchema = z.discriminatedUnion("action", [
 
 export type CreateExchangeRateInput = z.infer<typeof createExchangeRateSchema>;
 export type ConfigureExchangeRateRouteInput = z.infer<typeof configureExchangeRateRouteSchema>;
+export type CalculateExchangeRateInput = z.infer<typeof calculateExchangeRateSchema>;
+export type PreviewExchangeRateInput = z.infer<typeof previewExchangeRateSchema>;
