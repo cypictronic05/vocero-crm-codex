@@ -1,4 +1,4 @@
-import { calculateConversion, operationSymbol, parsePositiveDecimal, type CalculationOperation } from "@/server/exchange-rates/decimal";
+import { calculateConversion, calculateRequiredAmount, operationSymbol, parsePositiveDecimal, type CalculationOperation } from "@/server/exchange-rates/decimal";
 
 export type PresentableExchangeRate = {
   originCountry: string;
@@ -113,5 +113,21 @@ export function buildSpecificAmountMessage(rate: PresentableExchangeRate, amount
     presentation.formula.replace(/ = ([^=]+)$/, " = *$1*"),
     "",
     "📌 Monto estimado, sujeto a confirmación antes de procesar.",
+  ].join("\n");
+}
+
+export function buildRequiredAmountMessage(rate: PresentableExchangeRate, targetValue: string): string {
+  const target = normalizeLocalizedAmount(targetValue);
+  const required = calculateRequiredAmount(target, rate.commercialRate, rate.calculationOperation, rate.precision);
+  const targetDisplay = formatDecimalEs(target);
+  const requiredDisplay = formatDecimalEs(required);
+  return [
+    `${countryFlag(rate.originCountry)} ${countryName(rate.originCountry)} → ${countryFlag(rate.destinationCountry)} ${countryName(rate.destinationCountry)}`,
+    "",
+    `💱 Para que lleguen aproximadamente *${targetDisplay} ${rate.destinationCurrency}*, debes enviar cerca de *${requiredDisplay} ${rate.originCurrency}*.`,
+    "",
+    `Cálculo estimado: ${requiredDisplay} ${rate.originCurrency} ${operationSymbol(rate.calculationOperation)} ${formatDecimalEs(rate.commercialRate)} ≈ ${targetDisplay} ${rate.destinationCurrency}.`,
+    "",
+    "📌 Importe estimado, sujeto a confirmación antes de procesar.",
   ].join("\n");
 }

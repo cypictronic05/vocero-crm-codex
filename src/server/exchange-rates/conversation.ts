@@ -4,7 +4,7 @@ import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { formatDecimal, parsePositiveDecimal } from "@/server/exchange-rates/decimal";
 import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
-import { buildExchangeRatePresentation, buildSpecificAmountMessage, countryName, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
+import { buildExchangeRatePresentation, buildRequiredAmountMessage, buildSpecificAmountMessage, countryName, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
 import { listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
 import { findExplicitCatalogDirection, remittanceCountry } from "@/server/exchange-rates/catalog";
 
@@ -13,6 +13,8 @@ const CONVERSION_LANGUAGE = /\b(cu[aá]nto|cu[aá]ntos|equivale|recibe|recibir[i
 const MISSING_AMOUNT_CONVERSION = /\b(?:cu[aá]nto|cu[aá]ntos)\b.*\b(?:recibe|recibir[ií]a|env[ií]o|enviar|mando|mandar)\b|\b(?:recibe|recibir[ií]a)\b.*\b(?:env[ií]o|enviar|mando|mandar)\b/i;
 const MONEY_LANGUAGE = /\b(mil(?:es)?|mill[oó]n(?:es)?|pesos?|d[oó]lares?|bol[ií]vares?|soles?)\b/i;
 const AMOUNT_TOKEN = /\b(?:\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d{1,12})?)\s*(?:mil(?:es)?|mill[oó]n(?:es)?)?\b/i;
+const TARGET_LANGUAGE = /\b(?:necesito\s+recibir|quiero\s+que\s+lleguen|que\s+lleguen|recibir|recibo|recibe|reciban)\b/i;
+const SOURCE_LANGUAGE = /\b(?:debo\s+enviar|cu[aá]nto\s+debo\s+enviar|cu[aá]nto\s+me\s+cuesta\s+enviar|enviar|env[ií]o|mando|mandar|desde)\b/i;
 
 const CURRENCY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   COP: ["PESO COLOMBIANO", "PESOS COLOMBIANOS"],
@@ -96,6 +98,35 @@ function contextualRoute(contextTexts: readonly string[], rates: readonly Curren
   return null;
 }
 
+function semanticCandidates(text: string, rates: readonly CurrentRate[]): { rates: CurrentRate[]; inverseAmount: boolean; matched: boolean } {
+  const currencyMatches = rates.flatMap((rate) => [rate.originCurrency, rate.destinationCurrency])
+    .filter((currency, index, all) => all.indexOf(currency) === index)
+    .map((currency) => ({ currency, position: tokenPosition(text, currencyTerms(currency)) }))
+    .filter((item) => item.position >= 0)
+    .sort((left, right) => left.position - right.position);
+  if (currencyMatches.length < 2) {
+    const currency = currencyMatches[0]?.currency;
+    const sourceCountry = rates.find((rate) => tokenPosition(text, [rate.originCountry, countryName(rate.originCountry)]) >= 0)?.originCountry;
+    if (currency && sourceCountry && SOURCE_LANGUAGE.test(text)) {
+      return { rates: rates.filter((rate) => rate.originCountry === sourceCountry && rate.destinationCurrency === currency), inverseAmount: true, matched: true };
+    }
+    return { rates: [], inverseAmount: false, matched: false };
+  }
+  const targetMarker = text.search(TARGET_LANGUAGE);
+  const sourceMarker = text.search(SOURCE_LANGUAGE);
+  const target = targetMarker >= 0 ? currencyMatches.find((item) => item.position > targetMarker) : undefined;
+  const source = sourceMarker >= 0 ? currencyMatches.find((item) => item.position > sourceMarker) : undefined;
+  if (!target && !source) return { rates: [], inverseAmount: false, matched: false };
+  const targetCurrency = target?.currency ?? currencyMatches.find((item) => item.currency !== source?.currency)?.currency;
+  const sourceCurrency = source?.currency ?? currencyMatches.find((item) => item.currency !== target?.currency)?.currency;
+  if (!sourceCurrency || !targetCurrency || sourceCurrency === targetCurrency) return { rates: [], inverseAmount: false, matched: false };
+  return {
+    rates: rates.filter((rate) => rate.originCurrency === sourceCurrency && rate.destinationCurrency === targetCurrency),
+    inverseAmount: Boolean(target && targetMarker >= 0 && target.position > targetMarker && (!source || source.position > target.position)),
+    matched: true,
+  };
+}
+
 export function resolveRateText(textValue: string, rates: readonly CurrentRate[], contextTexts: readonly string[] = []): RateConversationResult {
   if (!isExchangeRateIntent(textValue)) return null;
   const text = normalized(textValue);
@@ -116,18 +147,26 @@ export function resolveRateText(textValue: string, rates: readonly CurrentRate[]
       pendingDirection: explicitDirection,
     };
   }
-  const directional = explicitDirection ? explicitRates : directionalCandidates(text, rates);
+  const semantic = explicitDirection
+    ? { rates: [], inverseAmount: TARGET_LANGUAGE.test(text) && Boolean(amount), matched: false }
+    : semanticCandidates(text, rates);
+  const directional = explicitDirection ? explicitRates : semantic.matched ? semantic.rates : directionalCandidates(text, rates);
   if (directional.length > 1) {
     return { kind: "clarification", reply: "Encontré varias rutas posibles. Indícame el país y la moneda de origen y de destino." };
   }
-  const origins = directional.length ? directional : originCandidates(text, rates);
+  const origins = directional.length ? directional : semantic.matched ? [] : originCandidates(text, rates);
   let rate = directional[0] ?? null;
   if (!rate && origins.length === 1) rate = origins[0] ?? null;
   if (!rate) rate = contextualRoute(contextTexts, rates, origins.length ? origins : rates);
   if (!rate && origins.length > 1) {
     return { kind: "clarification", reply: `¿Hacia qué país y moneda deseas enviar desde ${origins[0]?.originCurrency ?? "esa moneda"}?` };
   }
-  if (!rate && rates.length === 1 && amount) rate = rates[0] ?? null;
+  const mentionedCurrencies = rates.flatMap((candidate) => [candidate.originCurrency, candidate.destinationCurrency])
+    .filter((currency, index, all) => all.indexOf(currency) === index)
+    .filter((currency) => tokenPosition(text, currencyTerms(currency)) >= 0);
+  const needsDestination = SOURCE_LANGUAGE.test(text) && mentionedCurrencies.length <= 1 && !explicitDirection && !semantic.matched && contextTexts.length === 0;
+  if (!rate && rates.length === 1 && amount && !needsDestination && !semantic.matched) rate = rates[0] ?? null;
+  if (needsDestination) rate = null;
   if (!rate) {
     const currencyCodes = text.match(/\b[A-Z]{3}\b/g) ?? [];
     return currencyCodes.length < 2
@@ -141,7 +180,12 @@ export function resolveRateText(textValue: string, rates: readonly CurrentRate[]
     if (hasAmount) return { kind: "clarification", reply: `Indícame el importe que deseas enviar en ${rate.originCurrency}.` };
     return { kind: "rate", reply: buildExchangeRatePresentation({ ...rate, calculationOperation: rate.calculationOperation }).customerMessage };
   }
-  return { kind: "rate", reply: buildSpecificAmountMessage({ ...rate, calculationOperation: rate.calculationOperation }, amount) };
+  return {
+    kind: "rate",
+    reply: semantic.inverseAmount
+      ? buildRequiredAmountMessage({ ...rate, calculationOperation: rate.calculationOperation }, amount)
+      : buildSpecificAmountMessage({ ...rate, calculationOperation: rate.calculationOperation }, amount),
+  };
 }
 
 function unavailableRouteMessage(direction: PendingDirection, registered: boolean): string {

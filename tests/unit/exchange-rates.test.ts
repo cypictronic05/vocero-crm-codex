@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { calculateConversion, divideDecimal, multiplyDecimal, parsePositiveDecimal, sameDecimal } from "@/server/exchange-rates/decimal";
+import { calculateConversion, calculateRequiredAmount, divideDecimal, multiplyDecimal, parsePositiveDecimal, sameDecimal } from "@/server/exchange-rates/decimal";
 import { parseExchangeRatesFlag } from "@/server/exchange-rates/flag";
 import { roleCanManageExchangeRates } from "@/server/exchange-rates/service";
 import { bulkExchangeRateRoutesSchema, calculateExchangeRateSchema, configureExchangeRateRouteSchema, createExchangeRateSchema, previewExchangeRateSchema, updateExchangeRateCountrySchema } from "@/server/exchange-rates/validation";
@@ -97,6 +97,8 @@ describe("tasas de cambio", () => {
   it("calcula los ejemplos Nexora con decimal exacto y redondeo final half-up", () => {
     expect(calculateConversion("100000", "3.68", "divide", 2)).toBe("27173.91");
     expect(calculateConversion("100000", "2.90", "multiply", 2)).toBe("290000");
+    expect(calculateRequiredAmount("100000", "2.90", "multiply", 2)).toBe("34482.76");
+    expect(calculateRequiredAmount("100000", "3.68", "divide", 2)).toBe("368000");
   });
 
   it("presenta importes comerciales legibles sin perder precisión", () => {
@@ -163,12 +165,51 @@ describe("tasas de cambio", () => {
       routeOperation: "multiply", calculationOperation: "multiply",
       commercialRate: "4000.000000000000", previewResult: "400000000",
     };
-    expect(resolveRateText("100 dólares", [usdRate])?.reply)
-      .toContain("100 USD × 4.000 = *400.000 COP*");
+    expect(resolveRateText("¿Cuánto cuesta mandar 100 dólares?", [usdRate])?.kind).toBe("clarification");
     expect(resolveRateText("¿Cuánto recibe mi familiar si envío?", [currentRate])?.reply)
       .toContain("¿Qué cantidad deseas enviar");
     expect(resolveRateText("Quiero convertir 0 COP a VES", [currentRate])?.reply)
       .toContain("importe positivo válido");
+  });
+
+  it("distingue moneda recibida de moneda enviada y calcula objetivos inversos", () => {
+    const coToBr: CurrentRate = {
+      ...currentRate,
+      routeId: "xrr_co_br", quoteId: "xrq_co_br",
+      originCountry: "CO", originCurrency: "COP", destinationCountry: "BR", destinationCurrency: "BRL",
+      routeOperation: "multiply", calculationOperation: "multiply",
+      commercialRate: "0.001000000000", previewResult: "100",
+    };
+    const brToCo: CurrentRate = {
+      ...currentRate,
+      routeId: "xrr_br_co", quoteId: "xrq_br_co",
+      originCountry: "BR", originCurrency: "BRL", destinationCountry: "CO", destinationCurrency: "COP",
+      routeOperation: "multiply", calculationOperation: "multiply",
+      commercialRate: "1000.000000000000", previewResult: "100000000",
+    };
+    expect(resolveRateText("Tengo 100.000 COP, ¿cuántos BRL recibo?", [coToBr])?.reply)
+      .toContain("100.000 COP × 0,001 = *100 BRL*");
+    expect(resolveRateText("Necesito recibir 100.000 COP, ¿cuántos BRL envío?", [brToCo])?.reply)
+      .toContain("100 BRL");
+    expect(resolveRateText("Necesito recibir 100.000 COP, ¿cuántos BRL envío?", [brToCo])?.reply)
+      .toContain("100 BRL × 1.000 ≈ 100.000 COP");
+    expect(resolveRateText("Quiero que lleguen 200.000 COP desde Brasil", [brToCo])?.reply)
+      .toContain("200 BRL");
+    expect(resolveRateText("¿Cuánto cuesta mandar 100 dólares?", [brToCo])?.kind).toBe("clarification");
+  });
+
+  it("conserva el contexto de dirección sin inventar la ruta inversa", () => {
+    const brToCo: CurrentRate = {
+      ...currentRate,
+      routeId: "xrr_br_co_context", quoteId: "xrq_br_co_context",
+      originCountry: "BR", originCurrency: "BRL", destinationCountry: "CO", destinationCurrency: "COP",
+      routeOperation: "multiply", calculationOperation: "multiply",
+      commercialRate: "1000.000000000000", previewResult: "100000000",
+    };
+    expect(resolveRateText("¿Cuánto debo enviar desde Brasil a Colombia?", [brToCo], ["La ruta es desde Brasil hacia Colombia"])?.kind).toBe("rate");
+    expect(resolveRateText("Necesito recibir 100.000 COP, ¿cuántos BRL envío?", [
+      { ...brToCo, originCountry: "CO", originCurrency: "COP", destinationCountry: "BR", destinationCurrency: "BRL" },
+    ])?.kind).toBe("pending");
   });
 
   it("no infiere pesos ambiguos y el contexto solo desambigua una ruta vigente", () => {
