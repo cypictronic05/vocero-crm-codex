@@ -22,6 +22,7 @@ const CURRENCY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   PEN: ["SOL", "SOLES", "SOL PERUANO", "SOLES PERUANOS"],
   CLP: ["PESO CHILENO", "PESOS CHILENOS"],
   USD: ["DOLAR", "DOLARES", "DOLAR ESTADOUNIDENSE", "DOLARES ESTADOUNIDENSES"],
+  BRL: ["REAL", "REALES", "REAL BRASILEÑO", "REALES BRASILEÑOS", "REAL BRASILENO", "REALES BRASILENOS"],
 };
 const PESO_CURRENCIES = new Set(["ARS", "CLP", "COP", "CUP", "DOP", "MXN", "PHP", "UYU"]);
 
@@ -106,9 +107,14 @@ function semanticCandidates(text: string, rates: readonly CurrentRate[]): { rate
     .sort((left, right) => left.position - right.position);
   if (currencyMatches.length < 2) {
     const currency = currencyMatches[0]?.currency;
-    const sourceCountry = rates.find((rate) => tokenPosition(text, [rate.originCountry, countryName(rate.originCountry)]) >= 0)?.originCountry;
+    const sourceCountry = rates.find((rate) => tokenPosition(text, [rate.originCountry, countryName(rate.originCountry), ...currencyTerms(rate.originCurrency)]) >= 0)?.originCountry;
     if (currency && sourceCountry && SOURCE_LANGUAGE.test(text)) {
-      return { rates: rates.filter((rate) => rate.originCountry === sourceCountry && rate.destinationCurrency === currency), inverseAmount: true, matched: true };
+      const destinationCountry = rates.find((rate) => rate.originCountry === sourceCountry && rate.destinationCountry !== sourceCountry && tokenPosition(text, [rate.destinationCountry, countryName(rate.destinationCountry)]) >= 0)?.destinationCountry;
+      return {
+        rates: rates.filter((rate) => rate.originCountry === sourceCountry && (rate.destinationCurrency === currency || rate.destinationCountry === destinationCountry)),
+        inverseAmount: text.search(TARGET_LANGUAGE) >= 0 && text.search(TARGET_LANGUAGE) < (currencyMatches[0]?.position ?? Number.MAX_SAFE_INTEGER),
+        matched: true,
+      };
     }
     return { rates: [], inverseAmount: false, matched: false };
   }

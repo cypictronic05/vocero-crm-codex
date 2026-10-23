@@ -5,7 +5,7 @@ import { parseExchangeRatesFlag } from "@/server/exchange-rates/flag";
 import { roleCanManageExchangeRates } from "@/server/exchange-rates/service";
 import { bulkExchangeRateRoutesSchema, calculateExchangeRateSchema, configureExchangeRateRouteSchema, createExchangeRateSchema, previewExchangeRateSchema, updateExchangeRateCountrySchema } from "@/server/exchange-rates/validation";
 import { requiredOperationForRoute } from "@/server/exchange-rates/rules";
-import { buildExchangeRatePresentation, formatDecimalEs, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
+import { buildExchangeRatePresentation, commercialExampleAmount, formatDecimalEs, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
 import { appNavGroups } from "@/lib/nav";
 import { isExchangeRateIntent, resolveRateText, type CurrentRate } from "@/server/exchange-rates/conversation";
 import { REMITTANCE_COUNTRIES, VERIFIED_REMITTANCE_ROUTES, findExplicitCatalogDirection } from "@/server/exchange-rates/catalog";
@@ -102,13 +102,16 @@ describe("tasas de cambio", () => {
   });
 
   it("presenta importes comerciales legibles sin perder precisión", () => {
+    expect(commercialExampleAmount("COP")).toBe("10000");
+    expect(commercialExampleAmount("BRL")).toBe("100");
+    expect(commercialExampleAmount("USD")).toBe("10");
     expect(formatDecimalEs("3.680000000000")).toBe("3,68");
     expect(formatDecimalEs("27173.910000")).toBe("27.173,91");
     expect(normalizeLocalizedAmount("100.000,50")).toBe("100000.50");
     expect(calculateExchangeRateSchema.parse({ routeId: "xrr_1", amount: "100.000" }).amount).toBe("100000");
     expect(previewExchangeRateSchema.safeParse({ routeId: "xrr_1", commercialRate: "3,68", amount: "100000" }).success).toBe(true);
     const presentation = buildExchangeRatePresentation({ ...currentRate, calculationOperation: "divide" });
-    expect(presentation.formula).toBe("100.000 COP ÷ 3,68 = 27.173,91 VES");
+    expect(presentation.formula).toBe("10.000 COP ÷ 3,68 = 2.717,39 VES");
     expect(presentation.customerMessage).toContain("La tasa de hoy es *3,68*");
     expect(presentation.customerMessage).not.toMatch(/2026-|precision|Operación autorizada/i);
   });
@@ -123,7 +126,7 @@ describe("tasas de cambio", () => {
   it("resuelve IA con tasa vigente e importe sin confirmar operaciones", () => {
     const plain = resolveRateText("¿Cuál es la tasa de COP a VES?", [currentRate]);
     expect(plain?.kind).toBe("rate");
-    expect(plain?.reply).toContain("100.000 COP ÷ 3,68 = *27.173,91 VES*");
+    expect(plain?.reply).toContain("10.000 COP ÷ 3,68 = *2.717,39 VES*");
     const amount = resolveRateText("Quiero convertir 100.000 COP a VES", [currentRate]);
     expect(amount?.reply).toContain("100.000 COP ÷ 3,68 = *27.173,91 VES*");
     expect(amount?.reply.toLowerCase()).not.toContain("transferencia confirmada");
@@ -196,6 +199,10 @@ describe("tasas de cambio", () => {
     expect(resolveRateText("Quiero que lleguen 200.000 COP desde Brasil", [brToCo])?.reply)
       .toContain("200 BRL");
     expect(resolveRateText("¿Cuánto cuesta mandar 100 dólares?", [brToCo])?.kind).toBe("clarification");
+    expect(resolveRateText("Si envío 100 reales brasileños a Colombia, ¿cuántos pesos reciben?", [brToCo])?.reply)
+      .toContain("100 BRL × 1.000 = *100.000 COP*");
+    expect(resolveRateText("Necesito que reciban 100.000 pesos colombianos. ¿Cuántos reales debo enviar?", [brToCo])?.reply)
+      .toContain("100 BRL × 1.000 ≈ 100.000 COP");
   });
 
   it("conserva el contexto de dirección sin inventar la ruta inversa", () => {

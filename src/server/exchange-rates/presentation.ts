@@ -22,6 +22,14 @@ export type ExchangeRatePresentation = {
   customerMessage: string;
 };
 
+const COMMERCIAL_EXAMPLE_AMOUNTS: Readonly<Record<string, string>> = {
+  COP: "10000", VES: "1000", BRL: "100", PEN: "100", CLP: "10000", MXN: "100", USD: "10",
+};
+
+export function commercialExampleAmount(currency: string): string {
+  return COMMERCIAL_EXAMPLE_AMOUNTS[currency.toUpperCase()] ?? "100000";
+}
+
 export function countryName(code: string): string {
   return new Intl.DisplayNames(["es"], { type: "region" }).of(code.toUpperCase()) ?? code.toUpperCase();
 }
@@ -64,7 +72,7 @@ export function normalizeLocalizedAmount(value: string): string {
 
 export function buildExchangeRatePresentation(
   rate: PresentableExchangeRate,
-  amountValue = "100000"
+  amountValue = commercialExampleAmount(rate.originCurrency)
 ): ExchangeRatePresentation {
   const amount = normalizeLocalizedAmount(amountValue);
   const result = calculateConversion(amount, rate.commercialRate, rate.calculationOperation, rate.precision);

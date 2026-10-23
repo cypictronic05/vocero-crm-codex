@@ -4,13 +4,11 @@ import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import type { SessionContext } from "@/lib/auth/session";
 import { calculateConversion } from "@/server/exchange-rates/decimal";
-import { buildExchangeRatePresentation } from "@/server/exchange-rates/presentation";
+import { buildExchangeRatePresentation, commercialExampleAmount } from "@/server/exchange-rates/presentation";
 import { operationMatchesCommercialRule } from "@/server/exchange-rates/rules";
 import { REMITTANCE_COUNTRIES, remittanceCountry, remittanceRouteKey } from "@/server/exchange-rates/catalog";
 import { INITIAL_RATE_SOURCE, INITIAL_REMITTANCE_ROUTES } from "@/server/exchange-rates/preload";
 import type { BulkExchangeRateRoutesInput, CalculateExchangeRateInput, ConfigureExchangeRateRouteInput, CreateExchangeRateInput, ExchangeRateSelectionInput, PreviewExchangeRateInput, UpdateExchangeRateCountryInput } from "@/server/exchange-rates/validation";
-
-const PREVIEW_AMOUNT = "100000";
 
 export class ExchangeRateError extends Error {
   constructor(public readonly code: "module_disabled" | "forbidden" | "not_found" | "invalid_rate" | "invalid_state" | "overlap" | "route_not_configured" | "formula_conflict", message: string) {
@@ -251,11 +249,11 @@ export async function listExchangeRates(organizationId: string, includeHistory: 
   const names = new Map(users.map((user) => [user.id, user.name]));
   return visibleRows.map((row) => {
     const previewResult = row.calculationOperation
-      ? calculateConversion(PREVIEW_AMOUNT, row.commercialRate, row.calculationOperation, row.precision)
+      ? calculateConversion(commercialExampleAmount(row.originCurrency), row.commercialRate, row.calculationOperation, row.precision)
       : null;
     return {
       ...row,
-      previewAmount: row.calculationOperation ? PREVIEW_AMOUNT : null,
+      previewAmount: row.calculationOperation ? commercialExampleAmount(row.originCurrency) : null,
       previewResult,
       createdByName: names.get(row.createdByUserId) ?? "Usuario",
       publishedByName: row.publishedByUserId ? names.get(row.publishedByUserId) ?? "Usuario" : null,
