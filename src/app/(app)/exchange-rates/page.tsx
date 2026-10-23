@@ -2,7 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { ExchangeRatesClient } from "@/components/exchange-rates/exchange-rates-client";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
-import { canManageExchangeRates, getExchangeRateSettings, listExchangeRateRoutes, listExchangeRates, listPresentedCurrentRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
+import { VERIFIED_REMITTANCE_ROUTES } from "@/server/exchange-rates/catalog";
+import { canManageExchangeRates, getExchangeRateSettings, listExchangeRateCountries, listExchangeRateRouteMatrix, listExchangeRateRoutes, listExchangeRates, listPresentedCurrentRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export default async function ExchangeRatesPage() {
   const rates = enabled ? await listExchangeRates(session.organizationId, canManage) : [];
   const currentRates = enabled ? await listPresentedCurrentRates(session.organizationId) : [];
   const routes = enabled ? await listExchangeRateRoutes(session.organizationId) : [];
+  const countries = enabled ? await listExchangeRateCountries(session.organizationId) : [];
+  const matrixRoutes = enabled ? await listExchangeRateRouteMatrix(session.organizationId) : [];
   const settings = session.role === "owner" ? await getExchangeRateSettings(session.organizationId) : null;
   return (
     <ExchangeRatesClient
@@ -37,6 +40,9 @@ export default async function ExchangeRatesPage() {
         publishedAt: rate.publishedAt?.toISOString() ?? null,
       }))}
       initialRoutes={routes}
+      initialCountries={countries}
+      initialMatrixRoutes={matrixRoutes}
+      verifiedRoutes={VERIFIED_REMITTANCE_ROUTES}
       supervisors={settings?.supervisors ?? []}
     />
   );

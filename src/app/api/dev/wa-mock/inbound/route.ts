@@ -25,6 +25,7 @@ const schema = z
     mimeType: z.string().optional(),
     caption: z.string().optional(),
     filename: z.string().optional(),
+    voice: z.boolean().optional(),
     location: z.record(z.unknown()).optional(),
     // 016 — anuncio de origen simulado (referral)
     ctwaClid: z.string().optional(),

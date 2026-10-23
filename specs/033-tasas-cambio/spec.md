@@ -2,7 +2,7 @@
 
 **Feature Branch**: `feature/nexora-turnos`
 **Created**: 2026-10-21
-**Status**: Fase 5A.3 — cálculo conversacional de remesas en validación
+**Status**: Fase 5A.5 — catálogo de países y rutas de remesas en validación
 
 ## Problema
 
@@ -90,6 +90,25 @@ es inequívoca; operación, tasa y vigencia siempre proceden de PostgreSQL.
 5. El resolvedor termina el turno tras una respuesta determinista y evita una
    segunda respuesta del LLM.
 
+### US7 — Catálogo y matriz de corredores (P1)
+
+El owner habilita países del catálogo por organización y activa únicamente los
+corredores direccionales que aprueba. La selección diaria usa dos controles
+independientes de origen y destino alimentados desde PostgreSQL.
+
+1. El catálogo inicial contiene VE/VES, CO/COP, CL/CLP, PE/PEN, EC/USD,
+   US/USD, BR/BRL y MX/MXN; Ecuador y Estados Unidos son países distintos.
+2. La matriz excluye origen = destino y no crea rutas inversas implícitas.
+3. La activación masiva exige vista previa y confirmación del owner, es
+   idempotente y no crea tasas, fórmulas ni precisiones.
+4. Una ruta recién activada queda pendiente hasta que el owner configure una
+   sola vez operación y precisión; después owner o supervisora autorizada puede
+   cargar su primera tasa.
+5. Cambiar origen o destino limpia inmediatamente cualquier tasa, cálculo o
+   borrador anterior; una respuesta HTTP tardía no puede restaurarlos.
+6. Si la dirección existe pero no tiene tasa vigente, el cliente recibe un aviso
+   concreto y no se reutiliza la tasa de otra ruta u organización.
+
 ## Casos límite
 
 - Dos versiones publicadas solapadas para la misma ruta se rechazan.
@@ -128,6 +147,16 @@ es inequívoca; operación, tasa y vigencia siempre proceden de PostgreSQL.
 - **FR-009**: Las APIs validan body y query con Zod y devuelven 404 con módulo
   apagado, 401 sin sesión, 403 sin capacidad y 422 en input inválido.
 - **FR-010**: La UI es responsive, usa tokens de tema y separa edición/publicación.
+- **FR-011**: El catálogo se persiste por organización; solo el owner habilita
+  países y activa corredores. Supervisor y member no alteran esa configuración.
+- **FR-012**: La activación de corredores es direccional, idempotente y deja
+  operación, precisión y tasa en estado pendiente, sin reinterpretar historia.
+- **FR-013**: Una dirección explícita del mensaje actual invalida cualquier ruta
+  contextual. No se reutilizan tasas ni se infiere la dirección inversa; la
+  derivación humana solo se anuncia tras registrar la solicitud pendiente.
+- **FR-014**: Audio y notas de voz conservan su adjunto, pero no se transcriben
+  ni se entregan al LLM. Reciben un único aviso escrito, sujeto a horario,
+  ventana de WhatsApp e intervención humana efectiva.
 
 ## Entidades
 
@@ -138,6 +167,8 @@ es inequívoca; operación, tasa y vigencia siempre proceden de PostgreSQL.
 - **Capacidad de tasas**: autorización explícita de un miembro supervisor.
 - **Evento de auditoría**: actor, acción, antes/después y fecha.
 - **Solicitud pendiente**: pregunta que no pudo resolverse con una tasa vigente.
+- **País de remesas**: decisión por organización sobre un país/código ISO del
+  catálogo común; compartir moneda no fusiona países.
 
 ## Fuera de alcance
 

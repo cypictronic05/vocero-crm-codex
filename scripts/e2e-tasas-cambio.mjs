@@ -166,6 +166,54 @@ async function main() {
   ok(newReplies.length === 1, "el cálculo contextual genera una sola respuesta");
   ok(newReplies[0]?.body?.text?.body?.includes("Monto estimado, sujeto a confirmación"), "la respuesta amigable conserva el aviso de estimación");
 
+  const beforeUnavailable = amountOutbox?.length ?? 0;
+  const unavailableQuestion = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
+    phoneNumberId, from: sender, name: "Cliente Tasas E2E",
+    text: "¿Cuál es la tasa de Perú a Venezuela?", waMessageId: "wamid.tasas.ruta-sin-tasa.3",
+  }) });
+  ok(unavailableQuestion.response.ok, "una ruta explícita distinta invalida el contexto anterior");
+  const unavailableOutbox = await hasta(async () => {
+    const entries = (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+    const reply = entries.slice(beforeUnavailable).find((entry) => entry.body?.text?.body?.includes("🇵🇪 Perú → 🇻🇪 Venezuela"));
+    return reply ? entries : null;
+  });
+  const unavailableReplies = unavailableOutbox?.slice(beforeUnavailable) ?? [];
+  ok(unavailableReplies.length === 1 && unavailableReplies[0]?.body?.text?.body === "🇵🇪 Perú → 🇻🇪 Venezuela\n\n¡Hola! 👋 Por el momento no tengo una tasa disponible para esta ruta.\n\nVoy a consultar con una asesora para ayudarte. 💙", "la ruta sin tasa registra atención y no reutiliza la cotización anterior");
+  ok(!unavailableReplies[0]?.body?.text?.body?.includes("3,68"), "la respuesta indisponible no filtra tasas de otra ruta");
+
+  const duplicateUnavailable = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
+    phoneNumberId, from: sender, type: "text",
+    text: "¿Cuál es la tasa de Perú a Venezuela?", waMessageId: "wamid.tasas.ruta-sin-tasa.3",
+  }) });
+  ok(duplicateUnavailable.response.ok, "el reintento del webhook de ruta es aceptado idempotentemente");
+  await sleep(750);
+  const afterUnavailableRetry = (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+  ok(afterUnavailableRetry.length === (unavailableOutbox?.length ?? 0), "el reintento no duplica la respuesta ni la solicitud pendiente");
+
+  const beforeAudio = afterUnavailableRetry.length;
+  const audioInbound = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
+    phoneNumberId, from: sender, type: "audio", voice: true,
+    mediaId: "mockmedia_tasas_voice_4", mimeType: "audio/ogg",
+    waMessageId: "wamid.tasas.audio.4",
+  }) });
+  ok(audioInbound.response.ok, "la nota de voz simulada entra y conserva su adjunto");
+  const audioOutbox = await hasta(async () => {
+    const entries = (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+    const reply = entries.slice(beforeAudio).find((entry) => entry.body?.text?.body?.startsWith("🎤 ¡Recibí tu nota de voz!"));
+    return reply ? entries : null;
+  });
+  const audioReplies = audioOutbox?.slice(beforeAudio) ?? [];
+  ok(audioReplies.length === 1 && audioReplies[0]?.body?.text?.body === "🎤 ¡Recibí tu nota de voz!\n\nPor ahora puedo ayudarte mejor por escrito. 📝\n\n¿Podrías escribirme tu consulta? Así podré ayudarte con mayor precisión. 💙", "el audio recibe una sola respuesta fija sin reutilizar la consulta anterior");
+  const audioRetry = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
+    phoneNumberId, from: sender, type: "audio", voice: true,
+    mediaId: "mockmedia_tasas_voice_4", mimeType: "audio/ogg",
+    waMessageId: "wamid.tasas.audio.4",
+  }) });
+  ok(audioRetry.response.ok, "el reintento del webhook de audio es aceptado");
+  await sleep(750);
+  const afterAudioRetry = (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+  ok(afterAudioRetry.length === (audioOutbox?.length ?? 0), "el reintento de audio no produce una segunda respuesta");
+
   const expiredDraft = await api("/api/exchange-rates", { method: "POST", body: JSON.stringify({
     routeId: route.id, commercialRate: "3.67",
     validFrom: "2020-01-01T00:00:00.000Z",
@@ -185,11 +233,17 @@ async function main() {
     const page = await context.newPage();
     await page.goto(`${BASE}/exchange-rates`);
     ok(await page.getByRole("heading", { name: "Tasas de cambio" }).isVisible(), "pantalla real visible");
-    ok(await page.getByLabel("Ruta seleccionada").isVisible() && await page.getByPlaceholder("País o moneda").isVisible(), "selector buscable de rutas accesible");
-    ok(await page.getByLabel("Ruta seleccionada").locator("option").count() >= 3, "selector carga múltiples rutas desde PostgreSQL");
+    const originSelector = page.getByLabel("País de origen", { exact: true });
+    const destinationSelector = page.getByLabel("País de destino", { exact: true });
+    ok(await originSelector.isVisible() && await destinationSelector.isVisible() && await page.getByPlaceholder("Bandera, país, código o moneda").count() === 2, "selectores independientes y buscables son accesibles");
+    ok(await originSelector.locator("option").count() >= 3 && await destinationSelector.locator("option").count() >= 2, "selectores cargan países y destinos desde rutas PostgreSQL");
+    const selectedOrigin = await originSelector.inputValue();
+    ok(!await destinationSelector.locator(`option[value="${selectedOrigin}"]`).count(), "el destino excluye el país de origen");
     ok(await page.getByText(/Ver todas las tasas vigentes \(2\)/).isVisible(), "resumen compacto permite mostrar todas las tasas");
     ok(await page.getByText(currentRate.presentation.formula, { exact: true }).first().isVisible(), "tarjeta comercial muestra fórmula exacta y moneda destino");
     ok(await page.getByRole("heading", { name: "Vista previa · WhatsApp" }).isVisible(), "vista previa de WhatsApp usa la respuesta del servidor");
+    await page.getByText("Configuración avanzada", { exact: true }).click();
+    ok(await page.getByRole("heading", { name: "Países habilitados" }).isVisible() && await page.getByRole("heading", { name: "Activación masiva de corredores" }).isVisible(), "owner ve catálogo y matriz de activación controlada");
     ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "escritorio sin desbordamiento horizontal");
     if (process.env.E2E_SCREENSHOT) {
       await page.screenshot({ path: process.env.E2E_SCREENSHOT, fullPage: true });

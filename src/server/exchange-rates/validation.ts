@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isIsoCountryCode, isIsoCurrencyCode } from "@/lib/iso";
 import { operationMatchesCommercialRule } from "@/server/exchange-rates/rules";
 import { normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
+import { REMITTANCE_COUNTRIES } from "@/server/exchange-rates/catalog";
 
 const canonicalPositiveDecimal = z.string().trim().regex(/^\+?(?:0*[1-9]\d*)(?:\.\d{1,12})?$|^\+?0*\.\d*[1-9]\d*$/, "Debe ser un decimal positivo con hasta 12 decimales");
 const positiveRateDecimal = z.string().trim()
@@ -21,6 +22,10 @@ const country = z.string().trim().toUpperCase()
 const currency = z.string().trim().toUpperCase()
   .regex(/^[A-Z]{3}$/, "Usa moneda ISO de tres letras")
   .refine(isIsoCurrencyCode, "La moneda no pertenece a ISO 4217");
+const catalogCountry = country.refine(
+  (value) => REMITTANCE_COUNTRIES.some((candidate) => candidate.code === value),
+  "El país no pertenece al catálogo de remesas"
+);
 
 export const exchangeRateOperationSchema = z.enum(["multiply", "divide"]);
 
@@ -67,7 +72,34 @@ export const exchangeRateSettingsSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("capability"), memberId: z.string().min(1), enabled: z.boolean() }),
 ]);
 
+export const updateExchangeRateCountrySchema = z.object({
+  countryCode: catalogCountry,
+  enabled: z.boolean(),
+});
+
+export const bulkExchangeRateRoutesSchema = z.object({
+  dryRun: z.boolean(),
+  routes: z.array(z.object({
+    originCountry: catalogCountry,
+    destinationCountry: catalogCountry,
+  }).refine((value) => value.originCountry !== value.destinationCountry, {
+    message: "Origen y destino deben ser países distintos",
+    path: ["destinationCountry"],
+  })).min(1).max(56),
+});
+
+export const exchangeRateSelectionSchema = z.object({
+  originCountry: catalogCountry,
+  destinationCountry: catalogCountry,
+}).refine((value) => value.originCountry !== value.destinationCountry, {
+  message: "Origen y destino deben ser países distintos",
+  path: ["destinationCountry"],
+});
+
 export type CreateExchangeRateInput = z.infer<typeof createExchangeRateSchema>;
 export type ConfigureExchangeRateRouteInput = z.infer<typeof configureExchangeRateRouteSchema>;
 export type CalculateExchangeRateInput = z.infer<typeof calculateExchangeRateSchema>;
 export type PreviewExchangeRateInput = z.infer<typeof previewExchangeRateSchema>;
+export type UpdateExchangeRateCountryInput = z.infer<typeof updateExchangeRateCountrySchema>;
+export type BulkExchangeRateRoutesInput = z.infer<typeof bulkExchangeRateRoutesSchema>;
+export type ExchangeRateSelectionInput = z.infer<typeof exchangeRateSelectionSchema>;

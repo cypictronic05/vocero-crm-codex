@@ -32,12 +32,17 @@ intercepción previa al LLM que consulta únicamente PostgreSQL.
 9. La cotización copia la fórmula para que historial e IA no dependan de una
    reinterpretación posterior. La UI muestra una vista previa exacta antes de
    publicar.
+10. Fase 5A.5: catálogo fijo de ocho países con habilitación por organización,
+    matriz direccional, previsualización de activación masiva e idempotencia.
+11. Los corredores masivos nacen activos para selección administrativa pero sin
+    operación, precisión ni tasa; no pueden calcular ni responder hasta completar
+    la configuración comercial y publicar una cotización.
 
 ## Migración y verificación
 
 Generar con `pnpm db:generate`, revisar SQL aditivo y probar sobre PostgreSQL
-aislado tanto 0000→0023 como 0000→0022 con datos y luego 0023. Verificar que
-0023 no altera cotizaciones existentes. Ejecutar unitarias, E2E local con mocks,
+aislado tanto 0000→0024 como 0000→0023 con datos y luego 0024. Verificar que
+0024 solo agrega el catálogo y no altera rutas/cotizaciones existentes. Ejecutar unitarias, E2E local con mocks,
 tipos, lint y build.
 
 ## Constitución (antes y después del diseño)

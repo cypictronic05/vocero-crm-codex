@@ -15,3 +15,10 @@
 - [x] T013 Separar configuración owner de actualización diaria supervisor.
 - [x] T014 Derivar unidades, calcular multiply/divide exacto y mostrar preview.
 - [x] T015 Actualizar resolvedor IA, unitarias y E2E PostgreSQL/Playwright.
+- [x] T016 Incorporar catálogo de ocho países por organización y migración 0024.
+- [x] T017 Separar selectores de origen/destino y limpiar resultados obsoletos.
+- [x] T018 Añadir matriz direccional con vista previa, confirmación e idempotencia.
+- [x] T019 Mantener rutas nuevas sin fórmula/tasa hasta aprobación comercial.
+- [x] T020 Cubrir permisos, aislamiento, historia intacta y respuestas tardías.
+- [x] T021 Priorizar la ruta explícita actual y registrar pendientes idempotentes.
+- [x] T022 Responder audio/voice sin transcripción, LLM ni contexto reutilizado.

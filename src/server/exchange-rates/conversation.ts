@@ -1,9 +1,12 @@
+import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
+import { scoped } from "@/lib/db/tenant";
 import { formatDecimal, parsePositiveDecimal } from "@/server/exchange-rates/decimal";
 import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
 import { buildExchangeRatePresentation, buildSpecificAmountMessage, countryName, normalizeLocalizedAmount } from "@/server/exchange-rates/presentation";
 import { listExchangeRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
+import { findExplicitCatalogDirection, remittanceCountry } from "@/server/exchange-rates/catalog";
 
 const RATE_REQUEST = /\b(tasa|tipo\s+de\s+cambio|cotizaci[oó]n|convertir|conversi[oó]n)\b/i;
 const CONVERSION_LANGUAGE = /\b(cu[aá]nto|cu[aá]ntos|equivale|recibe|recibir[ií]a|env[ií]o|enviar|mando|mandar|calcular|c[aá]lculo)\b/i;
@@ -54,10 +57,16 @@ function extractAmount(text: string): string | null {
 }
 
 export function isExchangeRateIntent(text: string): boolean {
-  return RATE_REQUEST.test(text) || MISSING_AMOUNT_CONVERSION.test(text) || (AMOUNT_TOKEN.test(text) && (MONEY_LANGUAGE.test(text) || /\b[A-Z]{3}\b/.test(text) || CONVERSION_LANGUAGE.test(text)));
+  return RATE_REQUEST.test(text) || MISSING_AMOUNT_CONVERSION.test(text) || Boolean(findExplicitCatalogDirection(text) && CONVERSION_LANGUAGE.test(text)) || (AMOUNT_TOKEN.test(text) && (MONEY_LANGUAGE.test(text) || /\b[A-Z]{3}\b/.test(text) || CONVERSION_LANGUAGE.test(text)));
 }
 
-export type RateConversationResult = { reply: string; kind: "rate" | "clarification" | "pending" } | null;
+type PendingDirection = { originCountry: string; destinationCountry: string };
+
+export type RateConversationResult = ({
+  reply: string;
+  kind: "rate" | "clarification" | "pending";
+  pendingDirection?: PendingDirection;
+}) | null;
 
 export type CurrentRate = Awaited<ReturnType<typeof listExchangeRates>>[number];
 
@@ -96,7 +105,18 @@ export function resolveRateText(textValue: string, rates: readonly CurrentRate[]
     return { kind: "clarification", reply: "Indícame un importe positivo válido para poder calcularlo." };
   }
 
-  const directional = directionalCandidates(text, rates);
+  const explicitDirection = findExplicitCatalogDirection(textValue);
+  const explicitRates = explicitDirection
+    ? rates.filter((rate) => rate.originCountry === explicitDirection.originCountry && rate.destinationCountry === explicitDirection.destinationCountry)
+    : [];
+  if (explicitDirection && explicitRates.length === 0) {
+    return {
+      kind: "pending",
+      reply: unavailableRouteMessage(explicitDirection, false),
+      pendingDirection: explicitDirection,
+    };
+  }
+  const directional = explicitDirection ? explicitRates : directionalCandidates(text, rates);
   if (directional.length > 1) {
     return { kind: "clarification", reply: "Encontré varias rutas posibles. Indícame el país y la moneda de origen y de destino." };
   }
@@ -112,7 +132,7 @@ export function resolveRateText(textValue: string, rates: readonly CurrentRate[]
     const currencyCodes = text.match(/\b[A-Z]{3}\b/g) ?? [];
     return currencyCodes.length < 2
       ? { kind: "clarification", reply: amount ? "¿Desde qué país y moneda envías, y en qué país y moneda deseas recibir?" : "¿Qué cantidad deseas enviar y cuál es la ruta de origen y destino?" }
-      : { kind: "pending", reply: "En este momento no tengo una tasa vigente para esa ruta. Una asesora confirmará la información contigo." };
+      : { kind: "pending", reply: "Esta ruta todavía no tiene una tasa disponible. Consulta con administración." };
   }
   if (!rate.calculationOperation) {
     return { kind: "pending", reply: "Todavía no puedo cotizar esa ruta. Una asesora confirmará la información contigo." };
@@ -122,6 +142,60 @@ export function resolveRateText(textValue: string, rates: readonly CurrentRate[]
     return { kind: "rate", reply: buildExchangeRatePresentation({ ...rate, calculationOperation: rate.calculationOperation }).customerMessage };
   }
   return { kind: "rate", reply: buildSpecificAmountMessage({ ...rate, calculationOperation: rate.calculationOperation }, amount) };
+}
+
+function unavailableRouteMessage(direction: PendingDirection, registered: boolean): string {
+  const origin = remittanceCountry(direction.originCountry);
+  const destination = remittanceCountry(direction.destinationCountry);
+  const header = `${origin?.flag ?? "🌐"} ${origin?.name ?? direction.originCountry} → ${destination?.flag ?? "🌐"} ${destination?.name ?? direction.destinationCountry}`;
+  const lines = [
+    header,
+    "",
+    "¡Hola! 👋 Por el momento no tengo una tasa disponible para esta ruta.",
+  ];
+  if (registered) {
+    lines.push("", "Voy a consultar con una asesora para ayudarte. 💙");
+  }
+  return lines.join("\n");
+}
+
+async function registerPendingRateRequest(input: {
+  organizationId: string;
+  conversationId: string;
+  messageId: string;
+  text: string;
+}): Promise<boolean> {
+  const db = getDb();
+  try {
+    return await db.transaction(async (tx) => {
+      // El webhook y el coalesce pueden competir por el mismo entrante. Este
+      // bloqueo evita duplicar la solicitud sin alterar la migración 0024.
+      const lockKey = `tasas:${input.organizationId}:${input.messageId}`;
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+      const existing = await tx
+        .select({ id: schema.exchangeRateRequest.id })
+        .from(schema.exchangeRateRequest)
+        .where(scoped(
+          schema.exchangeRateRequest.organizationId,
+          input.organizationId,
+          eq(schema.exchangeRateRequest.messageId, input.messageId)
+        ))
+        .limit(1);
+      if (existing.length) return true;
+      await tx.insert(schema.exchangeRateRequest).values({
+        id: newId("exchangeRateRequest"),
+        organizationId: input.organizationId,
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        requestText: input.text,
+        reason: "no_current_rate",
+      });
+      return true;
+    });
+  } catch {
+    console.error("[tasas] no se pudo registrar la atención pendiente");
+    return false;
+  }
 }
 
 /** Resuelve una consulta sin enviar tasas ni texto financiero al LLM. */
@@ -139,11 +213,13 @@ export async function resolveRateConversation(input: {
   const rates = await listExchangeRates(input.organizationId, false, input.at ?? new Date());
   const result = resolveRateText(input.text, rates, input.contextTexts);
   if (result?.kind === "pending") {
-    await getDb().insert(schema.exchangeRateRequest).values({
-      id: newId("exchangeRateRequest"), organizationId: input.organizationId,
-      conversationId: input.conversationId, messageId: input.messageId,
-      requestText: input.text, reason: "no_current_rate",
-    });
+    const registered = await registerPendingRateRequest(input);
+    if (result.pendingDirection) {
+      return {
+        ...result,
+        reply: unavailableRouteMessage(result.pendingDirection, registered),
+      };
+    }
   }
   return result;
 }

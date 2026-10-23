@@ -30,12 +30,19 @@ export async function maybeRunAgentTurn(
   organizationId: string,
   messageId: string,
   messageText: string | null = null,
+  messageType: string = "text",
   at: Date = new Date()
 ): Promise<void> {
   // 028 — De día la conversación ya fue asignada a una persona por la fase 2.
   // El mensaje queda en PostgreSQL; no se crea trabajo para ningún bot.
   const schedule = await getOrganizationAiSchedule(organizationId);
   if (!isAiScheduleActive(schedule, at)) return;
+  // El audio se atiende localmente: nunca se entrega a un cerebro externo ni
+  // depende de que exista un proveedor LLM configurado.
+  if (messageType === "audio") {
+    scheduleAgentTurn(conversationId, messageId);
+    return;
+  }
   if (despachoActivo()) {
     await despacharAlCerebro(conversationId, organizationId, messageId);
     return;

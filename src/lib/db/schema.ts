@@ -1301,6 +1301,25 @@ export const dispatch = pgTable(
 );
 
 /* 033 — Tasas de cambio: toda fila de dominio queda aislada por organización. */
+export const exchangeRateCountry = pgTable(
+  "exchange_rate_country",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    countryCode: text("country_code").notNull(),
+    currencyCode: text("currency_code").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("exchange_rate_country_org_country_uq").on(t.organizationId, t.countryCode),
+    index("exchange_rate_country_org_enabled_idx").on(t.organizationId, t.enabled),
+    check("exchange_rate_country_code_ck", sql`${t.countryCode} ~ '^[A-Z]{2}$'`),
+    check("exchange_rate_country_currency_ck", sql`${t.currencyCode} ~ '^[A-Z]{3}$'`),
+  ]
+);
+
 export const exchangeRateRoute = pgTable(
   "exchange_rate_route",
   {

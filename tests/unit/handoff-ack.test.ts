@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { HANDOFF_BACKUP_ACK } from "@/server/ai/handoff";
+import { AUDIO_WRITING_ACK } from "@/server/ai/media-safety";
 
 /**
  * FR-022 — Cuando el patrón de respaldo detecta que el cliente pide una
@@ -149,12 +150,12 @@ const perfil = {
   greeting: null,
 };
 
-function historial(text: string) {
-  return [{ id: "msg_1", direction: "in", text, createdAt: new Date() }];
+function historial(text: string | null, type = "text") {
+  return [{ id: "msg_1", direction: "in", type, text, createdAt: new Date() }];
 }
 
 /** Un turno donde el cliente escribe `text`: conversación, perfil, historial. */
-function turno(text: string, conv = conversacion()) {
+function turno(text: string | null, conv = conversacion()) {
   selectQueue.push([conv], [perfil], historial(text));
 }
 
@@ -254,6 +255,36 @@ describe("acuse del patrón de respaldo antes de traspasar (FR-022)", () => {
 
     expect(sendText).not.toHaveBeenCalled();
     expect(eventos).toEqual(["handoff:ventana"]);
+  });
+
+  it("una nota de voz posterior corta antes del LLM y no reutiliza el texto anterior", async () => {
+    selectQueue.push(
+      [conversacion()],
+      [perfil],
+      [
+        { id: "msg_audio", direction: "in", type: "audio", text: null, createdAt: new Date() },
+        { id: "msg_texto", direction: "in", type: "text", text: "¿Cuál es la tasa de Colombia a Venezuela?", createdAt: new Date(Date.now() - 1_000) },
+      ]
+    );
+
+    await correrTurno();
+
+    expect(sendText).toHaveBeenCalledTimes(1);
+    expect(sendText).toHaveBeenCalledWith({
+      conversationId: "cv_1",
+      organizationId: "org_1",
+      text: AUDIO_WRITING_ACK,
+      aiGenerated: true,
+    });
+    expect(chatJson).not.toHaveBeenCalled();
+    expect(updates.some((update) => update.handoffReason)).toBe(false);
+  });
+
+  it("una intervención humana efectiva mantiene silencio ante el audio", async () => {
+    turno(null, conversacion({ humanInterventionAt: new Date() }));
+    await correrTurno();
+    expect(sendText).not.toHaveBeenCalled();
+    expect(chatJson).not.toHaveBeenCalled();
   });
 
   it("un mensaje posterior recibe información sin repetir ni reiniciar el handoff", async () => {

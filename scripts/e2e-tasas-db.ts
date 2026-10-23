@@ -3,11 +3,16 @@ import { getDb, schema } from "@/lib/db";
 import type { SessionContext } from "@/lib/auth/session";
 import {
   ExchangeRateError,
+  bulkActivateExchangeRateRoutes,
   configureExchangeRateRoute,
   createExchangeRateDraft,
+  listExchangeRateCountries,
   listExchangeRates,
+  listExchangeRateRouteMatrix,
   publishExchangeRate,
+  updateExchangeRateCountry,
 } from "@/server/exchange-rates/service";
+import { REMITTANCE_COUNTRIES } from "@/server/exchange-rates/catalog";
 import { resolveRateConversation, resolveRateText } from "@/server/exchange-rates/conversation";
 
 const organizations = ["org_tasas_a", "org_tasas_b"];
@@ -101,6 +106,84 @@ async function main() {
   ok(naturalAmount?.kind === "rate" && naturalAmount.reply.includes("50.000 COP ÷ 3,68 = *13.586,96 VES*"), "importe natural usa contexto, tasa y fórmula PostgreSQL sin LLM");
   const isolatedAmount = resolveRateText("100 mil COP", currentB);
   ok(isolatedAmount?.kind !== "rate" && !isolatedAmount?.reply.includes("3,68"), "otra organización no recibe la tasa ni el cálculo");
+
+  const catalog = await listExchangeRateCountries(organizations[0]);
+  ok(catalog.length === 8 && catalog.map((country) => country.code).join(",") === "VE,CO,CL,PE,EC,US,BR,MX", "catálogo PostgreSQL expone los ocho países en el orden comercial");
+  ok(catalog.find((country) => country.code === "EC")?.currency === "USD" && catalog.find((country) => country.code === "US")?.currency === "USD", "Ecuador y Estados Unidos permanecen como países distintos aunque compartan USD");
+  const isolatedCatalog = await listExchangeRateCountries(organizations[1]);
+  ok(isolatedCatalog.every((country) => !country.enabled), "el catálogo habilitado queda aislado por organización");
+  ok(await rejectsCode(() => updateExchangeRateCountry(supervisor, { countryCode: "PE", enabled: true }), "forbidden"), "supervisora no puede habilitar países");
+  ok(await rejectsCode(() => updateExchangeRateCountry(member, { countryCode: "PE", enabled: true }), "forbidden"), "member no puede habilitar países");
+
+  for (const country of REMITTANCE_COUNTRIES) {
+    await updateExchangeRateCountry(owner, { countryCode: country.code, enabled: true });
+  }
+  const routesToActivate = [
+    { originCountry: "PE", destinationCountry: "VE" },
+    { originCountry: "CL", destinationCountry: "VE" },
+    { originCountry: "MX", destinationCountry: "CL" },
+  ];
+  const matrixBefore = await listExchangeRateRouteMatrix(organizations[0]);
+  const quoteRowsBefore = await db.select({ id: schema.exchangeRateQuote.id }).from(schema.exchangeRateQuote)
+    .where(eq(schema.exchangeRateQuote.organizationId, organizations[0]));
+  const dryRun = await bulkActivateExchangeRateRoutes(owner, { dryRun: true, routes: routesToActivate });
+  ok(dryRun.dryRun && dryRun.summary.create === 3, "vista previa masiva informa tres rutas nuevas sin escribirlas");
+  ok((await listExchangeRateRouteMatrix(organizations[0])).length === matrixBefore.length, "la vista previa no modifica la matriz");
+  ok(await rejectsCode(() => bulkActivateExchangeRateRoutes(supervisor, { dryRun: false, routes: routesToActivate }), "forbidden"), "supervisora no puede activar corredores masivamente");
+
+  const applied = await bulkActivateExchangeRateRoutes(owner, { dryRun: false, routes: routesToActivate });
+  ok(!applied.dryRun && applied.summary.create === 3, "owner activa solo las rutas seleccionadas");
+  const matrixAfter = await listExchangeRateRouteMatrix(organizations[0]);
+  const createdRoutes = matrixAfter.filter((candidate) => routesToActivate.some((requested) => requested.originCountry === candidate.originCountry && requested.destinationCountry === candidate.destinationCountry));
+  ok(createdRoutes.length === 3 && createdRoutes.every((candidate) => candidate.calculationOperation === null && candidate.roundingPrecision === null), "rutas nuevas quedan pendientes de fórmula, precisión y tasa");
+  const quoteRowsAfter = await db.select({ id: schema.exchangeRateQuote.id }).from(schema.exchangeRateQuote)
+    .where(eq(schema.exchangeRateQuote.organizationId, organizations[0]));
+  ok(quoteRowsAfter.length === quoteRowsBefore.length, "la activación de corredores no crea ni reinterpreta cotizaciones");
+  const repeated = await bulkActivateExchangeRateRoutes(owner, { dryRun: false, routes: routesToActivate });
+  ok(repeated.summary.unchanged === 3 && (await listExchangeRateRouteMatrix(organizations[0])).length === matrixAfter.length, "la activación repetida es idempotente y no duplica rutas");
+  ok(matrixAfter.some((candidate) => candidate.id === route.id && candidate.calculationOperation === "divide"), "la ruta y operación histórica CO → VE permanecen intactas");
+  ok(await rejectsCode(() => configureExchangeRateRoute(owner, {
+    originCountry: "PE", originCurrency: "PEN", destinationCountry: "VE", destinationCurrency: "VES",
+    operation: "divide", precision: 2,
+  }), "formula_conflict"), "la fórmula verificada PE → VE rechaza DIVIDE");
+  const configuredPeru = await configureExchangeRateRoute(owner, {
+    originCountry: "PE", originCurrency: "PEN", destinationCountry: "VE", destinationCurrency: "VES",
+    operation: "multiply", precision: 2,
+  });
+  ok(configuredPeru.calculationOperation === "multiply", "owner confirma MULTIPLY para PE → VE sin crear tasa");
+
+  await db.insert(schema.contact).values({
+    id: "ct_tasas_pending", organizationId: organizations[0],
+    waIdentity: "573000000099", phone: "573000000099", name: "Cliente ficticio tasas",
+  });
+  await db.insert(schema.conversation).values({
+    id: "cv_tasas_pending", organizationId: organizations[0], contactId: "ct_tasas_pending",
+    aiEnabled: true, lastInboundAt: new Date(), lastMessageAt: new Date(),
+  });
+  await db.insert(schema.message).values({
+    id: "msg_tasas_pending", organizationId: organizations[0], conversationId: "cv_tasas_pending",
+    waMessageId: "wamid.tasas.pending.db", direction: "in", type: "text",
+    text: "¿Cuál es la tasa de Perú a Venezuela?", status: "delivered",
+  });
+  const pendingResults = await Promise.all([
+    resolveRateConversation({
+      organizationId: organizations[0], conversationId: "cv_tasas_pending",
+      messageId: "msg_tasas_pending", text: "¿Cuál es la tasa de Perú a Venezuela?",
+      contextTexts: ["¿Cuál es la tasa de Venezuela a Colombia?"],
+    }),
+    resolveRateConversation({
+      organizationId: organizations[0], conversationId: "cv_tasas_pending",
+      messageId: "msg_tasas_pending", text: "¿Cuál es la tasa de Perú a Venezuela?",
+      contextTexts: ["¿Cuál es la tasa de Venezuela a Colombia?"],
+    }),
+  ]);
+  ok(pendingResults.every((result) => result?.reply === "🇵🇪 Perú → 🇻🇪 Venezuela\n\n¡Hola! 👋 Por el momento no tengo una tasa disponible para esta ruta.\n\nVoy a consultar con una asesora para ayudarte. 💙"), "la ruta explícita sin tasa prevalece y solo anuncia la atención registrada");
+  const pendingRequests = await db.select().from(schema.exchangeRateRequest)
+    .where(eq(schema.exchangeRateRequest.organizationId, organizations[0]));
+  ok(pendingRequests.filter((request) => request.messageId === "msg_tasas_pending").length === 1, "la concurrencia registra una sola solicitud pendiente por mensaje");
+  const pendingConversation = await db.select().from(schema.conversation)
+    .where(eq(schema.conversation.id, "cv_tasas_pending"));
+  ok(pendingConversation[0]?.aiEnabled === true && pendingConversation[0]?.handoffAt == null, "la atención pendiente no apaga la IA ni activa intervención humana efectiva");
   console.log(`\n${checks} comprobaciones PostgreSQL correctas.`);
 }
 

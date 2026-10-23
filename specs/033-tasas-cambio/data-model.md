@@ -2,6 +2,9 @@
 
 - `organization.exchange_rates_enabled`: booleano, default false.
 - `member.can_manage_exchange_rates`: booleano, default false.
+- `exchange_rate_country`: decisión por organización (`enabled`, default false)
+  para un país ISO y su moneda comercial. La unicidad es organización + país;
+  EC/USD y US/USD son filas independientes.
 - `exchange_rate_route`: dirección país/moneda origen → país/moneda destino,
   `calculation_operation` (`multiply`/`divide`) y `rounding_precision`. Las dos
   columnas nuevas son nullable solo para migrar rutas 0022 sin reinterpretarlas;

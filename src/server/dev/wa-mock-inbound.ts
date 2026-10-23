@@ -34,6 +34,8 @@ type MockMediaInput = {
   caption?: string;
   filename?: string;
   location?: Record<string, unknown>;
+  /** Solo audio: simula el indicador de nota de voz de Meta. */
+  voice?: boolean;
 };
 
 /**
@@ -80,6 +82,7 @@ function applyMockContent(
     };
     if (input.caption) media.caption = input.caption;
     if (input.filename) media.filename = input.filename;
+    if (type === "audio" && input.voice != null) media.voice = input.voice;
     message[type] = media;
   }
 }

@@ -6,7 +6,8 @@ import type { SessionContext } from "@/lib/auth/session";
 import { calculateConversion } from "@/server/exchange-rates/decimal";
 import { buildExchangeRatePresentation } from "@/server/exchange-rates/presentation";
 import { operationMatchesCommercialRule } from "@/server/exchange-rates/rules";
-import type { CalculateExchangeRateInput, ConfigureExchangeRateRouteInput, CreateExchangeRateInput, PreviewExchangeRateInput } from "@/server/exchange-rates/validation";
+import { REMITTANCE_COUNTRIES, remittanceCountry, remittanceRouteKey } from "@/server/exchange-rates/catalog";
+import type { BulkExchangeRateRoutesInput, CalculateExchangeRateInput, ConfigureExchangeRateRouteInput, CreateExchangeRateInput, ExchangeRateSelectionInput, PreviewExchangeRateInput, UpdateExchangeRateCountryInput } from "@/server/exchange-rates/validation";
 
 const PREVIEW_AMOUNT = "100000";
 
@@ -43,8 +44,147 @@ export async function requireRateManager(session: SessionContext): Promise<void>
   }
 }
 
-export async function listExchangeRateRoutes(organizationId: string) {
+async function countryStates(organizationId: string) {
   return getDb().select({
+    countryCode: schema.exchangeRateCountry.countryCode,
+    currencyCode: schema.exchangeRateCountry.currencyCode,
+    enabled: schema.exchangeRateCountry.enabled,
+  }).from(schema.exchangeRateCountry)
+    .where(scoped(schema.exchangeRateCountry.organizationId, organizationId));
+}
+
+async function effectiveEnabledCountryCodes(organizationId: string): Promise<Set<string>> {
+  const [states, legacyRoutes] = await Promise.all([
+    countryStates(organizationId),
+    getDb().select({
+      originCountry: schema.exchangeRateRoute.originCountry,
+      destinationCountry: schema.exchangeRateRoute.destinationCountry,
+    }).from(schema.exchangeRateRoute).where(scoped(
+      schema.exchangeRateRoute.organizationId,
+      organizationId,
+      eq(schema.exchangeRateRoute.active, true)
+    )),
+  ]);
+  const decisions = new Map(states.map((state) => [state.countryCode, state.enabled]));
+  const enabled = new Set(states.filter((state) => state.enabled).map((state) => state.countryCode));
+  for (const route of legacyRoutes) {
+    if (!decisions.has(route.originCountry)) enabled.add(route.originCountry);
+    if (!decisions.has(route.destinationCountry)) enabled.add(route.destinationCountry);
+  }
+  return enabled;
+}
+
+export async function listExchangeRateCountries(organizationId: string) {
+  const states = await countryStates(organizationId);
+  const byCode = new Map(states.map((state) => [state.countryCode, state]));
+  const effectiveEnabled = await effectiveEnabledCountryCodes(organizationId);
+  return REMITTANCE_COUNTRIES.map((country) => ({
+    ...country,
+    enabled: byCode.get(country.code)?.enabled ?? effectiveEnabled.has(country.code),
+  }));
+}
+
+export async function updateExchangeRateCountry(session: SessionContext, input: UpdateExchangeRateCountryInput) {
+  if (session.role !== "owner") throw new ExchangeRateError("forbidden", "Solo el propietario habilita países");
+  const country = remittanceCountry(input.countryCode);
+  if (!country) throw new ExchangeRateError("not_found", "País fuera del catálogo de remesas");
+  return getDb().transaction(async (tx) => {
+    const now = new Date();
+    const [row] = await tx.insert(schema.exchangeRateCountry).values({
+      id: newId("exchangeRateCountry"), organizationId: session.organizationId,
+      countryCode: country.code, currencyCode: country.currency,
+      enabled: input.enabled, createdAt: now, updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [schema.exchangeRateCountry.organizationId, schema.exchangeRateCountry.countryCode],
+      set: { currencyCode: country.currency, enabled: input.enabled, updatedAt: now },
+    }).returning();
+    if (!row) throw new ExchangeRateError("invalid_state", "No se pudo actualizar el país");
+    await tx.insert(schema.exchangeRateAuditEvent).values({
+      id: newId("exchangeRateAuditEvent"), organizationId: session.organizationId,
+      actorUserId: session.userId, action: "country_updated",
+      after: { countryCode: country.code, currencyCode: country.currency, enabled: input.enabled },
+    });
+    return { ...country, enabled: row.enabled };
+  });
+}
+
+export async function listExchangeRateRouteMatrix(organizationId: string) {
+  return getDb().select({
+    id: schema.exchangeRateRoute.id,
+    originCountry: schema.exchangeRateRoute.originCountry,
+    originCurrency: schema.exchangeRateRoute.originCurrency,
+    destinationCountry: schema.exchangeRateRoute.destinationCountry,
+    destinationCurrency: schema.exchangeRateRoute.destinationCurrency,
+    calculationOperation: schema.exchangeRateRoute.calculationOperation,
+    roundingPrecision: schema.exchangeRateRoute.roundingPrecision,
+    active: schema.exchangeRateRoute.active,
+  }).from(schema.exchangeRateRoute)
+    .where(scoped(schema.exchangeRateRoute.organizationId, organizationId))
+    .orderBy(asc(schema.exchangeRateRoute.originCountry), asc(schema.exchangeRateRoute.destinationCountry));
+}
+
+export async function bulkActivateExchangeRateRoutes(session: SessionContext, input: BulkExchangeRateRoutesInput) {
+  if (session.role !== "owner") throw new ExchangeRateError("forbidden", "Solo el propietario activa corredores comerciales");
+  const unique = [...new Map(input.routes.map((route) => [remittanceRouteKey(route.originCountry, route.destinationCountry), route])).values()];
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${session.organizationId}:exchange-rate-routes`}))`);
+    const countryRows = await tx.select({ code: schema.exchangeRateCountry.countryCode, enabled: schema.exchangeRateCountry.enabled })
+      .from(schema.exchangeRateCountry)
+      .where(scoped(schema.exchangeRateCountry.organizationId, session.organizationId));
+    const existing = await tx.select().from(schema.exchangeRateRoute)
+      .where(scoped(schema.exchangeRateRoute.organizationId, session.organizationId));
+    const decisions = new Map(countryRows.map((row) => [row.code, row.enabled]));
+    const enabled = new Set(countryRows.filter((row) => row.enabled).map((row) => row.code));
+    for (const route of existing.filter((route) => route.active)) {
+      if (!decisions.has(route.originCountry)) enabled.add(route.originCountry);
+      if (!decisions.has(route.destinationCountry)) enabled.add(route.destinationCountry);
+    }
+    const invalid = unique.find((route) => !enabled.has(route.originCountry) || !enabled.has(route.destinationCountry));
+    if (invalid) throw new ExchangeRateError("invalid_state", "Habilita primero los países de origen y destino");
+    const byKey = new Map(existing.map((route) => [remittanceRouteKey(route.originCountry, route.destinationCountry), route]));
+    const summary = { requested: unique.length, create: 0, reactivate: 0, unchanged: 0 };
+    for (const route of unique) {
+      const current = byKey.get(remittanceRouteKey(route.originCountry, route.destinationCountry));
+      if (!current) summary.create += 1;
+      else if (!current.active) summary.reactivate += 1;
+      else summary.unchanged += 1;
+    }
+    if (input.dryRun) return { dryRun: true, summary };
+    for (const requested of unique) {
+      const origin = remittanceCountry(requested.originCountry)!;
+      const destination = remittanceCountry(requested.destinationCountry)!;
+      const key = remittanceRouteKey(origin.code, destination.code);
+      const current = byKey.get(key);
+      if (current?.active) continue;
+      let routeId = current?.id;
+      if (current) {
+        await tx.update(schema.exchangeRateRoute).set({ active: true, updatedAt: new Date() })
+          .where(scoped(schema.exchangeRateRoute.organizationId, session.organizationId, eq(schema.exchangeRateRoute.id, current.id), eq(schema.exchangeRateRoute.active, false)));
+      } else {
+        routeId = newId("exchangeRateRoute");
+        await tx.insert(schema.exchangeRateRoute).values({
+          id: routeId, organizationId: session.organizationId,
+          originCountry: origin.code, originCurrency: origin.currency,
+          destinationCountry: destination.code, destinationCurrency: destination.currency,
+          calculationOperation: null, roundingPrecision: null, active: true,
+          createdByUserId: session.userId,
+        });
+      }
+      await tx.insert(schema.exchangeRateAuditEvent).values({
+        id: newId("exchangeRateAuditEvent"), organizationId: session.organizationId,
+        actorUserId: session.userId, routeId, action: current ? "route_reactivated_bulk" : "route_created_pending_bulk",
+        before: current ? { active: false } : null,
+        after: { active: true, calculationOperation: current?.calculationOperation ?? null, pendingConfiguration: !current?.calculationOperation },
+      });
+    }
+    return { dryRun: false, summary };
+  });
+}
+
+export async function listExchangeRateRoutes(organizationId: string) {
+  const enabled = await effectiveEnabledCountryCodes(organizationId);
+  if (enabled.size < 2) return [];
+  const rows = await getDb().select({
     id: schema.exchangeRateRoute.id,
     originCountry: schema.exchangeRateRoute.originCountry,
     originCurrency: schema.exchangeRateRoute.originCurrency,
@@ -56,6 +196,7 @@ export async function listExchangeRateRoutes(organizationId: string) {
   }).from(schema.exchangeRateRoute)
     .where(scoped(schema.exchangeRateRoute.organizationId, organizationId, eq(schema.exchangeRateRoute.active, true)))
     .orderBy(asc(schema.exchangeRateRoute.originCountry), asc(schema.exchangeRateRoute.destinationCountry));
+  return rows.filter((route) => enabled.has(route.originCountry) && enabled.has(route.destinationCountry));
 }
 
 export async function listExchangeRates(organizationId: string, includeHistory: boolean, at = new Date()) {
@@ -100,12 +241,14 @@ export async function listExchangeRates(organizationId: string, includeHistory: 
     ))
     .where(condition)
     .orderBy(asc(schema.exchangeRateRoute.originCurrency), desc(schema.exchangeRateQuote.version));
-  const userIds = [...new Set(rows.flatMap((row) => [row.createdByUserId, row.publishedByUserId].filter((id): id is string => Boolean(id))))];
+  const enabled = await effectiveEnabledCountryCodes(organizationId);
+  const visibleRows = rows.filter((row) => enabled.has(row.originCountry) && enabled.has(row.destinationCountry));
+  const userIds = [...new Set(visibleRows.flatMap((row) => [row.createdByUserId, row.publishedByUserId].filter((id): id is string => Boolean(id))))];
   const users = userIds.length
     ? await getDb().select({ id: schema.user.id, name: schema.user.name }).from(schema.user).where(inArray(schema.user.id, userIds))
     : [];
   const names = new Map(users.map((user) => [user.id, user.name]));
-  return rows.map((row) => {
+  return visibleRows.map((row) => {
     const previewResult = row.calculationOperation
       ? calculateConversion(PREVIEW_AMOUNT, row.commercialRate, row.calculationOperation, row.precision)
       : null;
@@ -139,6 +282,14 @@ export async function calculateCurrentExchangeRate(organizationId: string, input
     amount: input.amount,
     presentation: buildExchangeRatePresentation({ ...rate, calculationOperation: rate.calculationOperation }, input.amount),
   };
+}
+
+export async function getExchangeRateSelection(organizationId: string, input: ExchangeRateSelectionInput, at = new Date()) {
+  const routes = await listExchangeRateRoutes(organizationId);
+  const route = routes.find((candidate) => candidate.originCountry === input.originCountry && candidate.destinationCountry === input.destinationCountry) ?? null;
+  if (!route) return { route: null, currentRate: null };
+  const rates = await listPresentedCurrentRates(organizationId, at);
+  return { route, currentRate: rates.find((candidate) => candidate.routeId === route.id) ?? null };
 }
 
 export async function previewExchangeRateDraft(session: SessionContext, input: PreviewExchangeRateInput) {
@@ -183,6 +334,18 @@ export async function configureExchangeRateRoute(session: SessionContext, input:
       eq(schema.exchangeRateRoute.destinationCurrency, input.destinationCurrency)
     );
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${session.organizationId}:${input.originCountry}:${input.originCurrency}:${input.destinationCountry}:${input.destinationCurrency}`}))`);
+    const catalogCountries = [remittanceCountry(input.originCountry), remittanceCountry(input.destinationCountry)].filter((country) => country !== null);
+    if (catalogCountries.length === 2) {
+      const now = new Date();
+      await tx.insert(schema.exchangeRateCountry).values(catalogCountries.map((country) => ({
+        id: newId("exchangeRateCountry"), organizationId: session.organizationId,
+        countryCode: country.code, currencyCode: country.currency,
+        enabled: true, createdAt: now, updatedAt: now,
+      }))).onConflictDoUpdate({
+        target: [schema.exchangeRateCountry.organizationId, schema.exchangeRateCountry.countryCode],
+        set: { enabled: true, updatedAt: now },
+      });
+    }
     let [route] = await tx.select().from(schema.exchangeRateRoute).where(condition).limit(1);
     if (route && (route.calculationOperation || route.roundingPrecision !== null)) {
       throw new ExchangeRateError("invalid_state", "La fórmula de esta ruta ya fue configurada y es inmutable");

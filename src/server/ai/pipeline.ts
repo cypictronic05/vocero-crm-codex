@@ -34,7 +34,9 @@ import {
   withAiConversationSendLock,
 } from "@/server/ai/eligibility";
 import {
+  AUDIO_WRITING_ACK,
   MEDIA_REVIEW_ACK,
+  isInboundAudio,
   requiresHumanMediaReview,
 } from "@/server/ai/media-safety";
 import {
@@ -243,12 +245,6 @@ export async function runAgentTurn(
     return leido;
   }
 
-  const kb = await db
-    .select()
-    .from(schema.kbEntry)
-    .where(eq(schema.kbEntry.organizationId, organizationId))
-    .orderBy(asc(schema.kbEntry.createdAt));
-
   // Una imagen/documento puede ser un comprobante. El agente no interpreta
   // binarios y jamás puede convertir una foto en confirmación de pago.
   const pendientesDeRevision = vigentes.length ? vigentes : [lastInbound];
@@ -268,6 +264,20 @@ export async function runAgentTurn(
     await applyHandoff(conversationId, organizationId, "modelo");
     return leido;
   }
+
+  // Una nota de voz no trae texto. Si continuara al modelo, este solo vería
+  // el historial anterior y podría repetir una cotización vieja. Se acusa una
+  // sola vez y se corta antes de cualquier LLM, cerebro o transcripción.
+  if (!conversation.isTest && isInboundAudio(lastInbound)) {
+    await deliverReply(conversation, AUDIO_WRITING_ACK, opciones.at);
+    return leido;
+  }
+
+  const kb = await db
+    .select()
+    .from(schema.kbEntry)
+    .where(eq(schema.kbEntry.organizationId, organizationId))
+    .orderBy(asc(schema.kbEntry.createdAt));
 
   const financialReason = lastInbound.text
     ? financialReviewReason({
