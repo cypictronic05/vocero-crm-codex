@@ -68,11 +68,13 @@ async function main() {
   } else {
     ok(route.calculationOperation === "divide" && route.roundingPrecision === 2, "ruta CO → VE conserva fórmula owner");
   }
-  const immutable = await api("/api/exchange-rates/routes", { method: "POST", body: JSON.stringify({
+  const editableBeforePublication = await api("/api/exchange-rates/routes", { method: "POST", body: JSON.stringify({
     originCountry: "CO", originCurrency: "COP", destinationCountry: "VE", destinationCurrency: "VES",
     operation: "divide", precision: 2,
   }) });
-  ok(immutable.response.status === 409, "la fórmula configurada no puede modificarse en la gestión diaria");
+  ok(editableBeforePublication.response.ok || editableBeforePublication.response.status === 409, editableBeforePublication.response.ok
+    ? "el owner puede ajustar fórmula y precisión antes de autorizar la primera tasa"
+    : "una ejecución previa ya autorizó la ruta y mantiene bloqueada su fórmula");
 
   let reverseRoute = previous.json?.routes?.find((candidate) => candidate.originCountry === "VE" && candidate.originCurrency === "VES" && candidate.destinationCountry === "CO" && candidate.destinationCurrency === "COP");
   if (!reverseRoute) {
@@ -121,6 +123,11 @@ async function main() {
   ok(current.response.ok && current.json?.rates?.some((rate) => rate.quoteId === publishedId && rate.calculationOperation === "divide"), "tasa vigente conserva fórmula PostgreSQL");
   const currentRate = current.json?.currentRates?.find((rate) => rate.quoteId === publishedId);
   ok(currentRate?.presentation?.formula?.endsWith(" VES") && !currentRate.presentation.displayRate.includes("000000"), "API comercial expresa destino VES y oculta ceros técnicos");
+  const immutableAfterPublication = await api("/api/exchange-rates/routes", { method: "POST", body: JSON.stringify({
+    originCountry: "CO", originCurrency: "COP", destinationCountry: "VE", destinationCurrency: "VES",
+    operation: "divide", precision: 2,
+  }) });
+  ok(immutableAfterPublication.response.status === 409, "la primera publicación bloquea la fórmula comercial de la ruta");
 
   const calculated = await api("/api/exchange-rates/calculate", { method: "POST", body: JSON.stringify({ routeId: route.id, amount: "100.000" }) });
   ok(calculated.response.ok && calculated.json?.calculation?.presentation?.formula === currentRate.presentation.formula, "calculadora usa la misma tasa vigente y fórmula PostgreSQL");
@@ -141,10 +148,11 @@ async function main() {
   }) });
   ok(whatsapp.response.ok, "WhatsApp ficticio conectado exclusivamente al mock local");
   await api("/api/dev/wa-mock/outbox", { method: "DELETE" });
-  const sender = "573009990001";
+  const runId = Date.now().toString(36);
+  const sender = `57300${Date.now().toString().slice(-7)}`;
   const routeQuestion = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
     phoneNumberId, from: sender, name: "Cliente Tasas E2E",
-    text: "¿Cuál es la tasa de Colombia a Venezuela?", waMessageId: "wamid.tasas.contexto.1",
+    text: "¿Cuál es la tasa de Colombia a Venezuela?", waMessageId: `wamid.tasas.contexto.${runId}`,
   }) });
   ok(routeQuestion.response.ok, "consulta de ruta simulada entra por WhatsApp");
   const initialOutbox = await hasta(async () => {
@@ -155,7 +163,7 @@ async function main() {
   const beforeAmount = initialOutbox?.length ?? 0;
   const amountQuestion = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
     phoneNumberId, from: sender, name: "Cliente Tasas E2E",
-    text: "¿Cuánto recibe mi familiar si envío 200 mil?", waMessageId: "wamid.tasas.importe.2",
+    text: "¿Cuánto recibe mi familiar si envío 200 mil?", waMessageId: `wamid.tasas.importe.${runId}`,
   }) });
   ok(amountQuestion.response.ok, "consulta natural con importe entra por WhatsApp");
   const amountOutbox = await hasta(async () => {
@@ -169,7 +177,7 @@ async function main() {
   const beforeUnavailable = amountOutbox?.length ?? 0;
   const unavailableQuestion = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
     phoneNumberId, from: sender, name: "Cliente Tasas E2E",
-    text: "¿Cuál es la tasa de Perú a Venezuela?", waMessageId: "wamid.tasas.ruta-sin-tasa.3",
+    text: "¿Cuál es la tasa de Perú a Venezuela?", waMessageId: `wamid.tasas.ruta-sin-tasa.${runId}`,
   }) });
   ok(unavailableQuestion.response.ok, "una ruta explícita distinta invalida el contexto anterior");
   const unavailableOutbox = await hasta(async () => {
@@ -183,7 +191,7 @@ async function main() {
 
   const duplicateUnavailable = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
     phoneNumberId, from: sender, type: "text",
-    text: "¿Cuál es la tasa de Perú a Venezuela?", waMessageId: "wamid.tasas.ruta-sin-tasa.3",
+    text: "¿Cuál es la tasa de Perú a Venezuela?", waMessageId: `wamid.tasas.ruta-sin-tasa.${runId}`,
   }) });
   ok(duplicateUnavailable.response.ok, "el reintento del webhook de ruta es aceptado idempotentemente");
   await sleep(750);
@@ -194,7 +202,7 @@ async function main() {
   const audioInbound = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
     phoneNumberId, from: sender, type: "audio", voice: true,
     mediaId: "mockmedia_tasas_voice_4", mimeType: "audio/ogg",
-    waMessageId: "wamid.tasas.audio.4",
+    waMessageId: `wamid.tasas.audio.${runId}`,
   }) });
   ok(audioInbound.response.ok, "la nota de voz simulada entra y conserva su adjunto");
   const audioOutbox = await hasta(async () => {
@@ -207,7 +215,7 @@ async function main() {
   const audioRetry = await api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({
     phoneNumberId, from: sender, type: "audio", voice: true,
     mediaId: "mockmedia_tasas_voice_4", mimeType: "audio/ogg",
-    waMessageId: "wamid.tasas.audio.4",
+    waMessageId: `wamid.tasas.audio.${runId}`,
   }) });
   ok(audioRetry.response.ok, "el reintento del webhook de audio es aceptado");
   await sleep(750);
@@ -243,7 +251,7 @@ async function main() {
     ok(await page.getByText(currentRate.presentation.formula, { exact: true }).first().isVisible(), "tarjeta comercial muestra fórmula exacta y moneda destino");
     ok(await page.getByRole("heading", { name: "Vista previa · WhatsApp" }).isVisible(), "vista previa de WhatsApp usa la respuesta del servidor");
     await page.getByText("Configuración avanzada", { exact: true }).click();
-    ok(await page.getByRole("heading", { name: "Países habilitados" }).isVisible() && await page.getByRole("heading", { name: "Activación masiva de corredores" }).isVisible(), "owner ve catálogo y matriz de activación controlada");
+    ok(await page.getByRole("heading", { name: "Países habilitados" }).isVisible() && await page.getByRole("heading", { name: "Operación y redondeo por ruta" }).isVisible(), "owner ve catálogo y configuración comercial controlada");
     ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "escritorio sin desbordamiento horizontal");
     if (process.env.E2E_SCREENSHOT) {
       await page.screenshot({ path: process.env.E2E_SCREENSHOT, fullPage: true });

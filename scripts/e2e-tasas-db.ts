@@ -9,11 +9,14 @@ import {
   listExchangeRateCountries,
   listExchangeRates,
   listExchangeRateRouteMatrix,
+  preloadInitialExchangeRates,
   publishExchangeRate,
   updateExchangeRateCountry,
 } from "@/server/exchange-rates/service";
 import { REMITTANCE_COUNTRIES } from "@/server/exchange-rates/catalog";
 import { resolveRateConversation, resolveRateText } from "@/server/exchange-rates/conversation";
+import { calculateConversion } from "@/server/exchange-rates/decimal";
+import { formatDecimalEs } from "@/server/exchange-rates/presentation";
 
 const organizations = ["org_tasas_a", "org_tasas_b"];
 const users = ["usr_tasas_owner", "usr_tasas_supervisor", "usr_tasas_member", "usr_tasas_other"];
@@ -103,7 +106,16 @@ async function main() {
     messageId: "msg_ficticio_tasas", text: "¿Cuánto son 50 mil pesos?",
     contextTexts: ["Necesito enviar de Colombia a Venezuela"],
   });
-  ok(naturalAmount?.kind === "rate" && naturalAmount.reply.includes("50.000 COP ÷ 3,68 = *13.586,96 VES*"), "importe natural usa contexto, tasa y fórmula PostgreSQL sin LLM");
+  const winningRate = currentA[0]?.commercialRate;
+  const expectedNaturalResult = winningRate
+    ? formatDecimalEs(calculateConversion("50000", winningRate, "divide", 2))
+    : null;
+  ok(
+    naturalAmount?.kind === "rate" &&
+      Boolean(winningRate) &&
+      naturalAmount.reply.includes(`50.000 COP ÷ ${formatDecimalEs(winningRate!)} = *${expectedNaturalResult} VES*`),
+    "importe natural usa contexto, tasa ganadora y fórmula PostgreSQL sin LLM"
+  );
   const isolatedAmount = resolveRateText("100 mil COP", currentB);
   ok(isolatedAmount?.kind !== "rate" && !isolatedAmount?.reply.includes("3,68"), "otra organización no recibe la tasa ni el cálculo");
 
@@ -184,6 +196,22 @@ async function main() {
   const pendingConversation = await db.select().from(schema.conversation)
     .where(eq(schema.conversation.id, "cv_tasas_pending"));
   ok(pendingConversation[0]?.aiEnabled === true && pendingConversation[0]?.handoffAt == null, "la atención pendiente no apaga la IA ni activa intervención humana efectiva");
+
+  const preloaded = await preloadInitialExchangeRates(otherOwner);
+  ok(preloaded.routesCreated === 56 && preloaded.draftsCreated === 49, "precarga crea 56 rutas y 49 borradores reconocibles en una organización vacía");
+  const preloadedRoutes = await db.select().from(schema.exchangeRateRoute)
+    .where(eq(schema.exchangeRateRoute.organizationId, organizations[1]));
+  const preloadedQuotes = await db.select().from(schema.exchangeRateQuote)
+    .where(eq(schema.exchangeRateQuote.organizationId, organizations[1]));
+  ok(preloadedRoutes.length === 56 && preloadedQuotes.length === 49, "la matriz completa y sus borradores quedan persistidos en PostgreSQL");
+  ok(preloadedQuotes.every((quote) => quote.status === "draft" && quote.publishedAt === null), "la precarga no autoriza ni publica ninguna cotización");
+  const repeatedPreload = await preloadInitialExchangeRates(otherOwner);
+  ok(repeatedPreload.routesCreated === 0 && repeatedPreload.draftsCreated === 0, "la precarga repetida es idempotente y preserva historia");
+  const usdRoutes = preloadedRoutes.filter((candidate) =>
+    (candidate.originCountry === "EC" && candidate.destinationCountry === "US") ||
+    (candidate.originCountry === "US" && candidate.destinationCountry === "EC")
+  );
+  ok(usdRoutes.length === 2 && new Set(usdRoutes.map((candidate) => candidate.id)).size === 2, "Ecuador y Estados Unidos conservan rutas USD independientes");
   console.log(`\n${checks} comprobaciones PostgreSQL correctas.`);
 }
 

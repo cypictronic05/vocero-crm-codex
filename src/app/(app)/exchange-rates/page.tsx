@@ -3,7 +3,7 @@ import { ExchangeRatesClient } from "@/components/exchange-rates/exchange-rates-
 import { getSessionOrNull } from "@/lib/auth/session";
 import { exchangeRatesEnabled } from "@/server/exchange-rates/flag";
 import { VERIFIED_REMITTANCE_ROUTES } from "@/server/exchange-rates/catalog";
-import { canManageExchangeRates, getExchangeRateSettings, listExchangeRateCountries, listExchangeRateRouteMatrix, listExchangeRateRoutes, listExchangeRates, listPresentedCurrentRates, organizationRatesEnabled } from "@/server/exchange-rates/service";
+import { canManageExchangeRates, getExchangeRateSettings, listExchangeRateCountries, listExchangeRateRouteMatrix, listExchangeRateRoutes, listExchangeRates, listPresentedCurrentRates, organizationRatesEnabled, preloadInitialExchangeRates } from "@/server/exchange-rates/service";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +13,7 @@ export default async function ExchangeRatesPage() {
   if (!session) redirect("/login");
   const enabled = await organizationRatesEnabled(session.organizationId);
   if (!enabled && session.role !== "owner") notFound();
+  if (enabled && session.role === "owner") await preloadInitialExchangeRates(session);
   const canManage = enabled && await canManageExchangeRates(session);
   const rates = enabled ? await listExchangeRates(session.organizationId, canManage) : [];
   const currentRates = enabled ? await listPresentedCurrentRates(session.organizationId) : [];

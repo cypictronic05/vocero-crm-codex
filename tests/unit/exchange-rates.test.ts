@@ -9,6 +9,7 @@ import { buildExchangeRatePresentation, formatDecimalEs, normalizeLocalizedAmoun
 import { appNavGroups } from "@/lib/nav";
 import { isExchangeRateIntent, resolveRateText, type CurrentRate } from "@/server/exchange-rates/conversation";
 import { REMITTANCE_COUNTRIES, VERIFIED_REMITTANCE_ROUTES, findExplicitCatalogDirection } from "@/server/exchange-rates/catalog";
+import { INITIAL_REMITTANCE_ROUTES } from "@/server/exchange-rates/preload";
 
 const valid = {
   routeId: "xrr_route", commercialRate: "3.68",
@@ -67,6 +68,22 @@ describe("tasas de cambio", () => {
     expect(VERIFIED_REMITTANCE_ROUTES.map((route) => `${route.originCountry}:${route.destinationCountry}:${route.operation}`)).toEqual([
       "CO:VE:divide", "VE:CO:multiply", "PE:VE:multiply", "CL:VE:multiply",
     ]);
+  });
+
+  it("precarga 56 direcciones y 49 factores como borradores sin fusionar los dos USD", () => {
+    expect(INITIAL_REMITTANCE_ROUTES).toHaveLength(56);
+    expect(INITIAL_REMITTANCE_ROUTES.filter((route) => route.draftRate)).toHaveLength(49);
+    expect(new Set(INITIAL_REMITTANCE_ROUTES.map((route) => `${route.originCountry}:${route.destinationCountry}`)).size).toBe(56);
+    expect(INITIAL_REMITTANCE_ROUTES.find((route) => route.originCountry === "EC" && route.destinationCountry === "US")).toMatchObject({
+      originCurrency: "USD", destinationCurrency: "USD", draftRate: "0.95", operation: "multiply",
+    });
+    expect(INITIAL_REMITTANCE_ROUTES.find((route) => route.originCountry === "US" && route.destinationCountry === "EC")).toMatchObject({
+      originCurrency: "USD", destinationCurrency: "USD", draftRate: "0.95", operation: "multiply",
+    });
+    expect(INITIAL_REMITTANCE_ROUTES.find((route) => route.originCountry === "CO" && route.destinationCountry === "VE")).toMatchObject({
+      sourceKey: "tasaCOP", sourceValue: "0.2702702", draftRate: "3.700000962", operation: "divide",
+    });
+    expect(INITIAL_REMITTANCE_ROUTES.filter((route) => route.originCountry === "VE").every((route) => route.draftRate === null)).toBe(true);
   });
 
   it("valida habilitación de países y lotes direccionales sin aceptar combinaciones inventadas", () => {

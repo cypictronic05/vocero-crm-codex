@@ -2,7 +2,7 @@
 
 **Feature Branch**: `feature/nexora-turnos`
 **Created**: 2026-10-21
-**Status**: Fase 5A.5 — catálogo de países y rutas de remesas en validación
+**Status**: Fase 5A.6 — precarga segura y rediseño comercial local
 
 ## Problema
 

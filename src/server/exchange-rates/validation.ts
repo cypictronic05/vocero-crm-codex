@@ -45,16 +45,25 @@ export const configureExchangeRateRouteSchema = z.object({
   }
 });
 
-export const createExchangeRateSchema = z.object({
-  routeId: z.string().min(1),
+const exchangeRateDraftFields = {
   commercialRate: positiveRateDecimal,
   validFrom: z.string().datetime({ offset: true }),
   validUntil: z.string().datetime({ offset: true }).nullable(),
-}).superRefine((value, ctx) => {
+};
+
+function validateExchangeRateInterval(value: { validFrom: string; validUntil: string | null }, ctx: z.RefinementCtx) {
   if (value.validUntil && new Date(value.validUntil) <= new Date(value.validFrom)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["validUntil"], message: "Debe ser posterior a validFrom" });
   }
-});
+}
+
+export const createExchangeRateSchema = z.object({
+  routeId: z.string().min(1),
+  ...exchangeRateDraftFields,
+}).superRefine(validateExchangeRateInterval);
+
+export const updateExchangeRateDraftSchema = z.object(exchangeRateDraftFields)
+  .superRefine(validateExchangeRateInterval);
 
 export const calculateExchangeRateSchema = z.object({
   routeId: z.string().min(1),
@@ -70,6 +79,7 @@ export const previewExchangeRateSchema = z.object({
 export const exchangeRateSettingsSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("module"), enabled: z.boolean() }),
   z.object({ action: z.literal("capability"), memberId: z.string().min(1), enabled: z.boolean() }),
+  z.object({ action: z.literal("preload") }),
 ]);
 
 export const updateExchangeRateCountrySchema = z.object({

@@ -5,18 +5,19 @@ export type RemittanceCountry = {
   code: string;
   name: string;
   flag: string;
+  flagSvg: string;
   currency: string;
 };
 
 export const REMITTANCE_COUNTRIES: readonly RemittanceCountry[] = [
-  { code: "VE", name: "Venezuela", flag: countryFlag("VE"), currency: "VES" },
-  { code: "CO", name: "Colombia", flag: countryFlag("CO"), currency: "COP" },
-  { code: "CL", name: "Chile", flag: countryFlag("CL"), currency: "CLP" },
-  { code: "PE", name: "Perú", flag: countryFlag("PE"), currency: "PEN" },
-  { code: "EC", name: "Ecuador", flag: countryFlag("EC"), currency: "USD" },
-  { code: "US", name: "Estados Unidos", flag: countryFlag("US"), currency: "USD" },
-  { code: "BR", name: "Brasil", flag: countryFlag("BR"), currency: "BRL" },
-  { code: "MX", name: "México", flag: countryFlag("MX"), currency: "MXN" },
+  { code: "VE", name: "Venezuela", flag: countryFlag("VE"), flagSvg: "/flags/ve.svg", currency: "VES" },
+  { code: "CO", name: "Colombia", flag: countryFlag("CO"), flagSvg: "/flags/co.svg", currency: "COP" },
+  { code: "CL", name: "Chile", flag: countryFlag("CL"), flagSvg: "/flags/cl.svg", currency: "CLP" },
+  { code: "PE", name: "Perú", flag: countryFlag("PE"), flagSvg: "/flags/pe.svg", currency: "PEN" },
+  { code: "EC", name: "Ecuador", flag: countryFlag("EC"), flagSvg: "/flags/ec.svg", currency: "USD" },
+  { code: "US", name: "Estados Unidos", flag: countryFlag("US"), flagSvg: "/flags/us.svg", currency: "USD" },
+  { code: "BR", name: "Brasil", flag: countryFlag("BR"), flagSvg: "/flags/br.svg", currency: "BRL" },
+  { code: "MX", name: "México", flag: countryFlag("MX"), flagSvg: "/flags/mx.svg", currency: "MXN" },
 ] as const;
 
 export type VerifiedRemittanceRoute = {

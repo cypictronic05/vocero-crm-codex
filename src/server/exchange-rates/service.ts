@@ -7,6 +7,7 @@ import { calculateConversion } from "@/server/exchange-rates/decimal";
 import { buildExchangeRatePresentation } from "@/server/exchange-rates/presentation";
 import { operationMatchesCommercialRule } from "@/server/exchange-rates/rules";
 import { REMITTANCE_COUNTRIES, remittanceCountry, remittanceRouteKey } from "@/server/exchange-rates/catalog";
+import { INITIAL_RATE_SOURCE, INITIAL_REMITTANCE_ROUTES } from "@/server/exchange-rates/preload";
 import type { BulkExchangeRateRoutesInput, CalculateExchangeRateInput, ConfigureExchangeRateRouteInput, CreateExchangeRateInput, ExchangeRateSelectionInput, PreviewExchangeRateInput, UpdateExchangeRateCountryInput } from "@/server/exchange-rates/validation";
 
 const PREVIEW_AMOUNT = "100000";
@@ -348,7 +349,17 @@ export async function configureExchangeRateRoute(session: SessionContext, input:
     }
     let [route] = await tx.select().from(schema.exchangeRateRoute).where(condition).limit(1);
     if (route && (route.calculationOperation || route.roundingPrecision !== null)) {
-      throw new ExchangeRateError("invalid_state", "La fórmula de esta ruta ya fue configurada y es inmutable");
+      const [published] = await tx.select({ id: schema.exchangeRateQuote.id })
+        .from(schema.exchangeRateQuote)
+        .where(scoped(
+          schema.exchangeRateQuote.organizationId,
+          session.organizationId,
+          eq(schema.exchangeRateQuote.routeId, route.id),
+          isNotNull(schema.exchangeRateQuote.publishedAt)
+        )).limit(1);
+      if (published) {
+        throw new ExchangeRateError("invalid_state", "La operación queda bloqueada después de autorizar la primera tasa");
+      }
     }
     let action = "route_configured";
     if (route) {
@@ -356,8 +367,33 @@ export async function configureExchangeRateRoute(session: SessionContext, input:
         calculationOperation: input.operation,
         roundingPrecision: input.precision,
         updatedAt: new Date(),
-      }).where(and(condition, isNull(schema.exchangeRateRoute.calculationOperation), isNull(schema.exchangeRateRoute.roundingPrecision))).returning();
+      }).where(condition).returning();
       route = updated;
+      if (route) {
+        const drafts = await tx.select({
+          id: schema.exchangeRateQuote.id,
+          commercialRate: schema.exchangeRateQuote.commercialRate,
+        }).from(schema.exchangeRateQuote).where(scoped(
+          schema.exchangeRateQuote.organizationId,
+          session.organizationId,
+          eq(schema.exchangeRateQuote.routeId, route.id),
+          eq(schema.exchangeRateQuote.status, "draft")
+        ));
+        for (const draft of drafts) {
+          await tx.update(schema.exchangeRateQuote).set({
+            calculationOperation: input.operation,
+            precision: input.precision,
+            sourceUnits: input.operation === "multiply" ? "1" : draft.commercialRate,
+            destinationUnits: input.operation === "multiply" ? draft.commercialRate : "1",
+            updatedAt: new Date(),
+          }).where(scoped(
+            schema.exchangeRateQuote.organizationId,
+            session.organizationId,
+            eq(schema.exchangeRateQuote.id, draft.id),
+            eq(schema.exchangeRateQuote.status, "draft")
+          ));
+        }
+      }
     } else {
       action = "route_created";
       const [created] = await tx.insert(schema.exchangeRateRoute).values({
@@ -417,6 +453,53 @@ export async function createExchangeRateDraft(session: SessionContext, input: Cr
   });
 }
 
+export async function updateExchangeRateDraft(session: SessionContext, quoteId: string, input: Omit<CreateExchangeRateInput, "routeId">) {
+  await requireRateManager(session);
+  return getDb().transaction(async (tx) => {
+    const [quote] = await tx.select().from(schema.exchangeRateQuote).where(scoped(
+      schema.exchangeRateQuote.organizationId,
+      session.organizationId,
+      eq(schema.exchangeRateQuote.id, quoteId),
+      eq(schema.exchangeRateQuote.status, "draft")
+    )).limit(1);
+    if (!quote) throw new ExchangeRateError("not_found", "Borrador no encontrado");
+    const [route] = await tx.select().from(schema.exchangeRateRoute).where(scoped(
+      schema.exchangeRateRoute.organizationId,
+      session.organizationId,
+      eq(schema.exchangeRateRoute.id, quote.routeId),
+      eq(schema.exchangeRateRoute.active, true)
+    )).limit(1);
+    if (!route?.calculationOperation || route.roundingPrecision === null) {
+      throw new ExchangeRateError("route_not_configured", "La ruta aún no tiene fórmula comercial");
+    }
+    const now = new Date();
+    const [updated] = await tx.update(schema.exchangeRateQuote).set({
+      sourceUnits: route.calculationOperation === "multiply" ? "1" : input.commercialRate,
+      destinationUnits: route.calculationOperation === "multiply" ? input.commercialRate : "1",
+      commercialRate: input.commercialRate,
+      calculationOperation: route.calculationOperation,
+      precision: route.roundingPrecision,
+      validFrom: new Date(input.validFrom),
+      validUntil: input.validUntil ? new Date(input.validUntil) : null,
+      updatedAt: now,
+    }).where(scoped(
+      schema.exchangeRateQuote.organizationId,
+      session.organizationId,
+      eq(schema.exchangeRateQuote.id, quoteId),
+      eq(schema.exchangeRateQuote.status, "draft")
+    )).returning();
+    if (!updated) throw new ExchangeRateError("invalid_state", "El borrador cambió mientras se editaba");
+    await tx.insert(schema.exchangeRateAuditEvent).values({
+      id: newId("exchangeRateAuditEvent"), organizationId: session.organizationId,
+      actorUserId: session.userId, routeId: quote.routeId, quoteId,
+      action: "quote_draft_updated",
+      before: { commercialRate: quote.commercialRate, validFrom: quote.validFrom, validUntil: quote.validUntil },
+      after: { ...input, calculationOperation: route.calculationOperation, precision: route.roundingPrecision },
+    });
+    return updated;
+  });
+}
+
 export async function publishExchangeRate(session: SessionContext, quoteId: string) {
   await requireRateManager(session);
   const db = getDb();
@@ -472,11 +555,136 @@ export async function getExchangeRateSettings(organizationId: string) {
   return { enabled: org?.enabled ?? false, supervisors };
 }
 
-export async function updateExchangeRateSettings(session: SessionContext, input: { action: "module"; enabled: boolean } | { action: "capability"; memberId: string; enabled: boolean }) {
+/**
+ * Precarga idempotente de 5A.6. Nunca actualiza rutas ni cotizaciones
+ * existentes y todas las tasas reconocibles entran como borrador.
+ */
+export async function preloadInitialExchangeRates(session: SessionContext) {
+  if (session.role !== "owner") throw new ExchangeRateError("forbidden", "Solo el propietario ejecuta la precarga inicial");
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${session.organizationId}:exchange-rate-preload-5a6`}))`);
+    const now = new Date();
+
+    for (const country of REMITTANCE_COUNTRIES) {
+      await tx.insert(schema.exchangeRateCountry).values({
+        id: newId("exchangeRateCountry"),
+        organizationId: session.organizationId,
+        countryCode: country.code,
+        currencyCode: country.currency,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing({
+        target: [schema.exchangeRateCountry.organizationId, schema.exchangeRateCountry.countryCode],
+      });
+    }
+
+    const existingRoutes = await tx.select().from(schema.exchangeRateRoute)
+      .where(scoped(schema.exchangeRateRoute.organizationId, session.organizationId));
+    const byDirection = new Map(existingRoutes.map((route) => [
+      remittanceRouteKey(route.originCountry, route.destinationCountry),
+      route,
+    ]));
+    let routesCreated = 0;
+    let draftsCreated = 0;
+
+    for (const initial of INITIAL_REMITTANCE_ROUTES) {
+      const key = remittanceRouteKey(initial.originCountry, initial.destinationCountry);
+      if (byDirection.has(key)) continue;
+      const routeId = newId("exchangeRateRoute");
+      const [route] = await tx.insert(schema.exchangeRateRoute).values({
+        id: routeId,
+        organizationId: session.organizationId,
+        originCountry: initial.originCountry,
+        originCurrency: initial.originCurrency,
+        destinationCountry: initial.destinationCountry,
+        destinationCurrency: initial.destinationCurrency,
+        calculationOperation: initial.operation,
+        roundingPrecision: initial.precision,
+        active: true,
+        createdByUserId: session.userId,
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing({
+        target: [
+          schema.exchangeRateRoute.organizationId,
+          schema.exchangeRateRoute.originCountry,
+          schema.exchangeRateRoute.originCurrency,
+          schema.exchangeRateRoute.destinationCountry,
+          schema.exchangeRateRoute.destinationCurrency,
+        ],
+      }).returning();
+      if (!route) continue;
+      routesCreated += 1;
+
+      await tx.insert(schema.exchangeRateAuditEvent).values({
+        id: newId("exchangeRateAuditEvent"),
+        organizationId: session.organizationId,
+        actorUserId: session.userId,
+        routeId,
+        action: "route_preloaded_5a6",
+        after: {
+          source: INITIAL_RATE_SOURCE,
+          operation: initial.operation,
+          precision: initial.precision,
+          authorization: "pending_owner_review",
+        },
+      });
+
+      if (!initial.draftRate) continue;
+      const quoteId = newId("exchangeRateQuote");
+      await tx.insert(schema.exchangeRateQuote).values({
+        id: quoteId,
+        organizationId: session.organizationId,
+        routeId,
+        version: 1,
+        sourceUnits: initial.operation === "multiply" ? "1" : initial.draftRate,
+        destinationUnits: initial.operation === "multiply" ? initial.draftRate : "1",
+        commercialRate: initial.draftRate,
+        calculationOperation: initial.operation,
+        precision: initial.precision,
+        validFrom: now,
+        status: "draft",
+        createdByUserId: session.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await tx.insert(schema.exchangeRateAuditEvent).values({
+        id: newId("exchangeRateAuditEvent"),
+        organizationId: session.organizationId,
+        actorUserId: session.userId,
+        routeId,
+        quoteId,
+        action: "quote_imported_as_draft_5a6",
+        after: {
+          source: INITIAL_RATE_SOURCE,
+          sourceKey: initial.sourceKey,
+          sourceValue: initial.sourceValue,
+          commercialRate: initial.draftRate,
+          operation: initial.operation,
+          authorization: "draft_requires_owner_validation",
+        },
+      });
+      draftsCreated += 1;
+    }
+
+    return {
+      countriesVisible: REMITTANCE_COUNTRIES.length,
+      routesCreated,
+      draftsCreated,
+      routesTotal: INITIAL_REMITTANCE_ROUTES.length,
+    };
+  });
+}
+
+export async function updateExchangeRateSettings(session: SessionContext, input: { action: "module"; enabled: boolean } | { action: "capability"; memberId: string; enabled: boolean } | { action: "preload" }) {
   if (session.role !== "owner") throw new ExchangeRateError("forbidden", "Solo el propietario autoriza el módulo");
   const db = getDb();
-  if (input.action === "module") {
+  if (input.action === "preload") {
+    return preloadInitialExchangeRates(session);
+  } else if (input.action === "module") {
     await db.update(schema.organization).set({ exchangeRatesEnabled: input.enabled }).where(eq(schema.organization.id, session.organizationId));
+    if (input.enabled) await preloadInitialExchangeRates(session);
   } else {
     const [member] = await db.update(schema.member).set({ canManageExchangeRates: input.enabled })
       .where(scoped(schema.member.organizationId, session.organizationId, eq(schema.member.id, input.memberId), eq(schema.member.role, "supervisor"))).returning({ id: schema.member.id });
