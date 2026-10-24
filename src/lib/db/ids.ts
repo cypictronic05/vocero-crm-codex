@@ -40,6 +40,7 @@ const prefixes = {
   exchangeRateAuditEvent: "xra",
   exchangeRateRequest: "xrp",
   exchangeRateCountry: "xrc",
+  deliveryPreparationEvent: "dpe",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

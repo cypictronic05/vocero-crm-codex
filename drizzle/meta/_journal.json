@@ -176,6 +176,13 @@
       "when": 1792705506832,
       "tag": "0024_clever_molecule_man",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792792000000,
+      "tag": "0025_delivery_archive",
+      "breakpoints": true
     }
   ]
 }

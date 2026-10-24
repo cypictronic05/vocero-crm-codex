@@ -510,6 +510,9 @@ export async function ingestInboundMessage(input: {
     .set({
       lastInboundAt: waTimestamp,
       lastMessageAt: waTimestamp,
+      // Una entrada nueva reabre una conversación archivada por una entrega;
+      // así ningún mensaje concurrente queda oculto en la bandeja.
+      archivedAt: null,
       unreadCount: sql`${schema.conversation.unreadCount} + 1`,
       updatedAt: new Date(),
     })

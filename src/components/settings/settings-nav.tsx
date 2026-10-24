@@ -19,13 +19,15 @@ export function SettingsNav({
   agenda = false,
   atribucion = false,
   messenger = false,
+  owner = false,
 }: {
   agenda?: boolean;
   atribucion?: boolean;
   messenger?: boolean;
+  owner?: boolean;
 }) {
   const pathname = usePathname();
-  const sections = settingsSections({ agenda, atribucion, messenger });
+  const sections = settingsSections({ agenda, atribucion, messenger, owner });
   return (
     <nav
       aria-label="Ajustes"

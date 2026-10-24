@@ -158,6 +158,19 @@ export const invitation = pgTable("invitation", {
     .references(() => user.id, { onDelete: "cascade" }),
 });
 
+export const deliveryPreparationEvent = pgTable(
+  "delivery_preparation_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+    action: text("action").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("delivery_preparation_org_created_idx").on(t.organizationId, t.createdAt)]
+);
+
 /* ============================================================
  * Dominio (toda tabla lleva organization_id NOT NULL + índice org-first)
  * ============================================================ */
@@ -292,6 +305,7 @@ export const lead = pgTable(
     lastActivityAt: timestamp("last_activity_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    archivedAt: timestamp("archived_at"),
   },
   (t) => [
     uniqueIndex("lead_contact_uq").on(t.contactId),
@@ -440,6 +454,8 @@ export const conversation = pgTable(
     lastInboundAt: timestamp("last_inbound_at"),
     lastMessageAt: timestamp("last_message_at"),
     unreadCount: integer("unread_count").notNull().default(0),
+    /** Preparación de entrega: archivado reversible, nunca eliminación. */
+    archivedAt: timestamp("archived_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
